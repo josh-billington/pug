@@ -1,0 +1,110 @@
+{
+  "gitleaks": {
+    "darwin/arm64": {
+      "url": "https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_darwin_arm64.tar.gz",
+      "sha256": "b40ab0ae55c505963e365f271a8d3846efbc170aa17f2607f13df610a9aeb6a5"
+    },
+    "darwin/amd64": {
+      "url": "https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_darwin_x64.tar.gz",
+      "sha256": "dfe101a4db2255fc85120ac7f3d25e4342c3c20cf749f2c20a18081af1952709"
+    },
+    "linux/arm64": {
+      "url": "https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_arm64.tar.gz",
+      "sha256": "e4a487ee7ccd7d3a7f7ec08657610aa3606637dab924210b3aee62570fb4b080"
+    },
+    "linux/amd64": {
+      "url": "https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz",
+      "sha256": "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
+    }
+  },
+  "actionlint": {
+    "darwin/arm64": {
+      "url": "https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_darwin_arm64.tar.gz",
+      "sha256": "aba9ced2dee8d27fecca3dc7feb1a7f9a52caefa1eb46f3271ea66b6e0e6953f"
+    },
+    "darwin/amd64": {
+      "url": "https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_darwin_amd64.tar.gz",
+      "sha256": "5b44c3bc2255115c9b69e30efc0fecdf498fdb63c5d58e17084fd5f16324c644"
+    },
+    "linux/arm64": {
+      "url": "https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_arm64.tar.gz",
+      "sha256": "325e971b6ba9bfa504672e29be93c24981eeb1c07576d730e9f7c8805afff0c6"
+    },
+    "linux/amd64": {
+      "url": "https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz",
+      "sha256": "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8"
+    }
+  },
+  "nuclei": {
+    "darwin/arm64": {
+      "url": "https://github.com/projectdiscovery/nuclei/releases/download/v3.11.1/nuclei_3.11.1_macOS_arm64.zip",
+      "sha256": "7d7e291addd1fc29a9bf8d089afe878a9799b20229cbea2fb1693fc40fd4c5f0"
+    },
+    "darwin/amd64": {
+      "url": "https://github.com/projectdiscovery/nuclei/releases/download/v3.11.1/nuclei_3.11.1_macOS_amd64.zip",
+      "sha256": "75c47ce11e9dbd4288a1c895ed85e3c4df9f4acb8237d6d178da6dccd1628f2a"
+    },
+    "linux/arm64": {
+      "url": "https://github.com/projectdiscovery/nuclei/releases/download/v3.11.1/nuclei_3.11.1_linux_arm64.zip",
+      "sha256": "8044e3d9768ba0a744b2872c1a87e813006f013da97ca9f50f7661a4203bec07"
+    },
+    "linux/amd64": {
+      "url": "https://github.com/projectdiscovery/nuclei/releases/download/v3.11.1/nuclei_3.11.1_linux_amd64.zip",
+      "sha256": "ea63d4ae232808cd7c6bc00d0142428e231fab59dae01042246097d195835ab6"
+    }
+  },
+  "uv": {
+    "darwin/arm64": {
+      "url": "https://github.com/astral-sh/uv/releases/download/0.9.9/uv-aarch64-apple-darwin.tar.gz",
+      "sha256": "737e1c2c4f97577aa7764141846e27de915eebb3b2a0f467451089a64824d2f7"
+    },
+    "darwin/amd64": {
+      "url": "https://github.com/astral-sh/uv/releases/download/0.9.9/uv-x86_64-apple-darwin.tar.gz",
+      "sha256": "8a755971dbf0b394cb61607c3d21e81affd62a22cfd306351eb518be7a3f0a89"
+    },
+    "linux/arm64": {
+      "url": "https://github.com/astral-sh/uv/releases/download/0.9.9/uv-aarch64-unknown-linux-gnu.tar.gz",
+      "sha256": "35cbad89f226a06cd8b295f946e7083e15cd6fa058e09c2e02bb388be39a8fe4"
+    },
+    "linux/amd64": {
+      "url": "https://github.com/astral-sh/uv/releases/download/0.9.9/uv-x86_64-unknown-linux-gnu.tar.gz",
+      "sha256": "9ec303873e00deed44d1b2b52b85ab7aa55d849588d7242298748390eaea07ef"
+    }
+  },
+  "opengrep": {
+    "darwin/arm64": {
+      "url": "https://github.com/opengrep/opengrep/releases/download/v1.33.1/opengrep_osx_arm64",
+      "sha256": "a17c1881bb40e3214266a7a291cf4f2ae3bc56c1715628b5712d2ec816bc3e2d"
+    },
+    "darwin/amd64": {
+      "url": "https://github.com/opengrep/opengrep/releases/download/v1.33.1/opengrep_osx_x86",
+      "sha256": "c3bd18e0d898d44e28419d95dad57c8928bb46ab32889a0ee1f72a87ad9627af"
+    },
+    "linux/arm64": {
+      "url": "https://github.com/opengrep/opengrep/releases/download/v1.33.1/opengrep_manylinux_aarch64",
+      "sha256": "d1433f63a90b8bc0b6ad4b498a13b372b856ce9a754a43484ba4920fe2d76dcf"
+    },
+    "linux/amd64": {
+      "url": "https://github.com/opengrep/opengrep/releases/download/v1.33.1/opengrep_manylinux_x86",
+      "sha256": "46e8133cc490f9f50518061590ce2f6be5a08afaeda034471c0ceda4b3899808"
+    }
+  },
+  "trivy": {
+    "darwin/arm64": {
+      "url": "https://github.com/aquasecurity/trivy/releases/download/v0.76.2/trivy_0.76.2_macOS-ARM64.tar.gz",
+      "sha256": "ae7ea358326960406b703c77b2ac490190797d80b306b5b50c2a27221da0a5b8"
+    },
+    "darwin/amd64": {
+      "url": "https://github.com/aquasecurity/trivy/releases/download/v0.76.2/trivy_0.76.2_macOS-64bit.tar.gz",
+      "sha256": "e08bb9ea449ecf66c6bfb03cbb8697c503ff33d35fc585c9747e3eaeb7ed4c7b"
+    },
+    "linux/arm64": {
+      "url": "https://github.com/aquasecurity/trivy/releases/download/v0.76.2/trivy_0.76.2_Linux-ARM64.tar.gz",
+      "sha256": "ab9d51f86e6a5fb936f605faff6b593ac51bc378fff4d3e8b9d58358b9c367c3"
+    },
+    "linux/amd64": {
+      "url": "https://github.com/aquasecurity/trivy/releases/download/v0.76.2/trivy_0.76.2_Linux-64bit.tar.gz",
+      "sha256": "bc0fc726e017b8927a62b2d3531d7a84ee01769daf5c99ed866dced54089fdbf"
+    }
+  }
+}
