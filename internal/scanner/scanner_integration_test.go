@@ -3,6 +3,7 @@
 package scanner
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -16,6 +17,7 @@ import (
 	"time"
 
 	"github.com/josh-billington/pug/internal/report"
+	"github.com/josh-billington/pug/internal/rules"
 	"github.com/josh-billington/pug/internal/runner"
 	"github.com/josh-billington/pug/internal/tools"
 )
@@ -89,10 +91,7 @@ func TestRealRepositoryScanners(t *testing.T) {
 	}
 }
 
-// TestRealOpenGrepParseProblems pins the evidence for running without
-// --strict: a target OpenGrep cannot fully parse leaves the check completed
-// with a reason, while an invalid rule still fails it.
-func TestRealOpenGrepParseProblems(t *testing.T) {
+func TestRealOpenGrepPartialParseCompletesWithoutStrict(t *testing.T) {
 	requireTool(t, "opengrep")
 	const evalRule = "  - id: ruby-eval\n    languages: [ruby]\n    severity: ERROR\n    message: eval\n    pattern: eval(...)\n"
 	cases := []struct {
@@ -109,8 +108,8 @@ func TestRealOpenGrepParseProblems(t *testing.T) {
 			repo := t.TempDir()
 			fixtureFile(t, repo, "good.rb", "eval(params[:x])\n")
 			fixtureFile(t, repo, "bad.rb", "def broken(\n  eval(x\nclass << <<< end end end )))\n")
-			rules := fixtureFile(t, t.TempDir(), "rules.yml", tt.rules)
-			options := Options{Kind: "repo", Target: repo, Checks: []string{"source"}, Rules: rules, Timeout: 3 * time.Minute, Version: "integration"}
+			rulesFile := fixtureFile(t, t.TempDir(), "rules.yml", tt.rules)
+			options := Options{Kind: "repo", Target: repo, Checks: []string{"source"}, Rules: []rules.Spec{{Kind: rules.PathSpec, Path: rulesFile}}, Timeout: 3 * time.Minute, Version: "integration"}
 			if err := Validate(&options); err != nil {
 				t.Fatal(err)
 			}
@@ -123,6 +122,120 @@ func TestRealOpenGrepParseProblems(t *testing.T) {
 			}
 		})
 	}
+}
+
+func fixtureGit(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
+	defer cancel()
+	args = append([]string{"-c", "core.hooksPath=/dev/null", "-c", "user.name=Pug test", "-c", "user.email=pug@example.invalid"}, args...)
+	result := (runner.Local{}).Run(ctx, runner.Invocation{
+		Program: "git", Args: args, Dir: dir,
+		Env: append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null"),
+	})
+	if result.Err != nil || result.ExitCode != 0 {
+		t.Fatalf("git fixture: %v, %s", result.Err, result.Stderr)
+	}
+	return strings.TrimSpace(string(result.Stdout))
+}
+
+func TestRealRulePackScan(t *testing.T) {
+	requireTool(t, "opengrep")
+	home := t.TempDir()
+	t.Setenv("PUG_HOME", home)
+	upstream := filepath.Join(t.TempDir(), "fixture")
+	if err := os.Mkdir(upstream, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	files := map[string]string{
+		"LICENSE": "MIT",
+		"python/lang/eval.yaml": "rules:\n" +
+			"  - id: eval\n    languages: [python]\n    severity: ERROR\n    message: eval of input\n    pattern: eval(...)\n" +
+			"  - id: exec-used\n    languages: [python]\n    severity: WARNING\n    message: exec of input\n    pattern: exec(...)\n",
+
+		"python/lang/eval.test.yaml": "rules:\n  - id: eval\n    languages: [python]\n    pattern: eval(...)\n",
+		"configs/default.list":       "python/lang/eval.yml:eval\npython/lang/eval.yaml:exec-used\npython/lang/gone.yaml:gone\n",
+	}
+	for name, body := range files {
+		fixtureFile(t, upstream, name, body)
+	}
+	fixtureGit(t, upstream, "init", "--template=", "--initial-branch=main")
+	fixtureGit(t, upstream, "add", "--", ".")
+	fixtureGit(t, upstream, "commit", "--no-gpg-sign", "-m", "Add rules")
+	commit := fixtureGit(t, upstream, "rev-parse", "HEAD")
+	fixtureGit(t, upstream, "checkout", "-b", "other")
+	fixtureFile(t, upstream, "README.md", "Rules on another branch\n")
+	fixtureGit(t, upstream, "add", "--", ".")
+	fixtureGit(t, upstream, "commit", "--no-gpg-sign", "-m", "Add branch documentation")
+	otherCommit := fixtureGit(t, upstream, "rev-parse", "HEAD")
+	fixtureGit(t, upstream, "checkout", "main", "--")
+	spec, err := rules.ParseInstallSpec("file://" + upstream)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		installed, err := rules.Install(t.Context(), runner.Local{}, home, spec)
+		if err != nil || installed != commit {
+			t.Fatalf("install: %s, %v", installed, err)
+		}
+	}
+
+	repo := t.TempDir()
+	fixtureFile(t, repo, "app.py", "def handler(x, y):\n    eval(x)\n    exec(y)\n")
+	fixtureFile(t, repo, "broken.py", "def broken(:\n    eval(\n")
+	scan := func() report.Report {
+		options := Options{Kind: "repo", Target: repo, Checks: []string{"source"}, Timeout: 3 * time.Minute, Version: "integration",
+			Rules: []rules.Spec{{Kind: rules.PackSpec, Name: spec.Name}}}
+		if err := Validate(&options); err != nil {
+			t.Fatal(err)
+		}
+		return Scan(t.Context(), options, runner.Local{})
+	}
+	before := scan()
+	check := before.Checks[0]
+	got := map[string]string{}
+	for _, finding := range check.Findings {
+		got[finding.Rule] = finding.Severity
+	}
+	want := map[string]string{"fixture.python.lang.eval": "high", "fixture.python.lang.eval.exec-used": "medium"}
+	if check.Status != "completed" || fmt.Sprint(got) != fmt.Sprint(want) {
+		data, _ := json.MarshalIndent(check, "", "  ")
+		t.Fatalf("pack scan findings = %v, want %v:\n%s", got, want, data)
+	}
+	if !strings.Contains(check.Reason, "partial") || !strings.Contains(check.Reason, "skipped 1 profile entries") || check.Rules == nil || check.Rules.Packs["fixture"] != commit {
+		t.Fatalf("reason or provenance incomplete: %q %+v", check.Reason, check.Rules)
+	}
+	diff, err := report.Compare(before, scan())
+	if err != nil || len(diff.New) != 0 || len(diff.Absent) != 0 || len(diff.Unverified) != 0 || len(diff.Persistent) != 2 {
+		t.Fatalf("rescan with the same pack was not stable: %+v, %v", diff, err)
+	}
+	fixtureFile(t, upstream, "python/lang/eval.yaml", strings.ReplaceAll(strings.ReplaceAll(files["python/lang/eval.yaml"], "pattern: eval(...)", "pattern: never_eval(...)"), "pattern: exec(...)", "pattern: never_exec(...)"))
+	fixtureGit(t, upstream, "add", "--", ".")
+	fixtureGit(t, upstream, "commit", "--no-gpg-sign", "-m", "Change rules")
+	updated := fixtureGit(t, upstream, "rev-parse", "HEAD")
+	if installed, err := rules.Install(t.Context(), runner.Local{}, home, spec); err != nil || installed != updated {
+		t.Fatalf("update: %s, %v", installed, err)
+	}
+	after := scan()
+	diff, err = report.Compare(before, after)
+	if err != nil || !after.Complete || len(diff.Absent) != 0 || len(diff.Unverified) != 2 {
+		t.Fatalf("rule update looked like a fix: %+v, %v", diff, err)
+	}
+	for _, pin := range []string{otherCommit, commit} {
+		expected := pin
+		pinned, err := rules.ParseInstallSpec("file://" + upstream + "@" + pin)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if installed, err := rules.Install(t.Context(), runner.Local{}, home, pinned); err != nil || installed != expected {
+			t.Fatalf("pin %s: %s, %v", pin, installed, err)
+		}
+	}
+	diff, err = report.Compare(before, scan())
+	if err != nil || len(diff.Persistent) != 2 || len(diff.New) != 0 || len(diff.Absent) != 0 {
+		t.Fatalf("pinned rescan was unstable: %+v, %v", diff, err)
+	}
+
 }
 
 func TestRealApplicationScanners(t *testing.T) {

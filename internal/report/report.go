@@ -39,7 +39,22 @@ type Check struct {
 	DurationMS     int64     `json:"duration_ms"`
 	ExitCode       int       `json:"exit_code"`
 	EvidenceSHA256 string    `json:"evidence_sha256,omitempty"`
-	Findings       []Finding `json:"findings"`
+	// Rules is set for checks that run a composed rules config.
+	Rules    *RuleProvenance `json:"rules,omitempty"`
+	Findings []Finding       `json:"findings"`
+}
+
+// RuleProvenance identifies the rules a check ran. Two reports whose
+// provenance differs ran different rules, so a missing finding proves nothing.
+type RuleProvenance struct {
+	Specs []string `json:"specs"`
+	// Packs maps each rule pack used to its installed commit.
+	Packs map[string]string `json:"packs,omitempty"`
+	Rules int               `json:"rules"`
+	// Unresolved lists profile entries that name no installed rule.
+	Unresolved []string `json:"unresolved,omitempty"`
+	// SHA256 is the digest of the composed rules config.
+	SHA256 string `json:"sha256"`
 }
 
 type CoverageGap struct {

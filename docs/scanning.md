@@ -22,6 +22,39 @@ pug scan . --checks source,secrets,actions --format text
 
 See [Checks](commands.md#checks) for the tool and scope of each check. A missing or skipped requested check makes the report incomplete. The exception is `actions` in a repository with no workflow YAML files: it completes with nothing to lint and does not require actionlint.
 
+## Use a rule pack
+
+The `source` check runs four starter rules by default. Rule packs add maintained upstream OpenGrep rules. `pug rules install` requires Git and fetches rules from upstream. Source scans use the installed files and never fetch rules.
+
+1. Install the pack.
+
+	```sh
+	pug rules install amplify
+	```
+
+2. Scan with a profile from the pack.
+
+	```sh
+	pug scan /path/to/repo --checks source --rules amplify:security-audit
+	```
+
+`pug rules list` shows installed packs with their paths, checkout commits, and profiles, plus the built-in aliases and whether they are installed. Running `pug rules install amplify` again updates it to the remote default branch HEAD. To select a revision, use `pug rules install amplify@COMMIT`, with the full commit ID.
+
+Other OpenGrep rules repositories work too:
+
+```sh
+pug rules install github.com/trailofbits/semgrep-rules
+pug scan /path/to/repo --checks source --rules amplify:security-audit,semgrep-rules
+```
+
+A pack without a profile in `--rules` uses `configs/default.list` if it exists, otherwise every rule file. Pass `--rules` more than once, or separate values with commas, to combine packs, profiles, the starter rules, local rule files, and directories such as `./team-rules` or `./team-rules:audit`. See [Rule packs](commands.md#rule-packs) for layout and file-selection details.
+
+The `opengrep` and `amplify` packs use LGPL-2.1 with the Commons Clause, which restricts selling the rules. Pug never ships these Commons Clause rule packs. Each user fetches them from upstream when running `pug rules install`. Review the license before you use a pack.
+
+If a selected pack is not installed, the `source` check is skipped with the install command as its reason, and the report is incomplete.
+
+`pug diff` compares the composed rules hashes recorded in reports. When the rules differ, findings missing from the later report are `unverified`, not `absent`.
+
 ## Compare reports after a fix
 
 1. Fix the finding in the checkout.

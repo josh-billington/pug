@@ -22,6 +22,8 @@ pug sandbox --help
 | `pug image NAME@sha256:DIGEST` | Runs Trivy vulnerability and misconfiguration checks. Trivy can fetch the image and database. |
 | `pug app URL --allow-active` | Runs the selected application checks against the target. |
 | `pug diff BEFORE.json AFTER.json` | Compares findings for the same target. |
+| `pug rules list` | Lists installed packs and built-in aliases as JSON, with paths, commits, profiles, and install state. |
+| `pug rules install NAME\|URL[@COMMIT]...` | Clones or updates upstream rule repositories with Git. |
 | `pug sandbox [FLAGS] -- COMMAND [ARGS...]` | Runs a command and an optional application in an offline container. |
 | `pug help [COMMAND]` | Prints help for Pug or a command. `--help` has the same purpose. |
 | `pug completion SHELL` | Generates a shell completion script. |
@@ -93,7 +95,7 @@ pug setup --check --format json
 
 | Check | Tool | Scope |
 | --- | --- | --- |
-| `source` | OpenGrep | Bundled patterns for JavaScript `eval`, Python shell and pickle calls, and Go shell calls, or a supplied local rule file. |
+| `source` | OpenGrep | The rules selected with `--rules`. The default starter rules cover JavaScript `eval`, Python shell and pickle calls, and Go shell calls. |
 | `secrets` | Gitleaks | Current directory contents. Pug excludes Git history, secret values, and source snippets from the report. |
 | `dependencies` | Trivy | Vulnerabilities in supported dependency manifests and lockfiles. |
 | `actions` | Actionlint | GitHub Actions syntax, expressions, and action metadata. Shellcheck and Pyflakes subprocesses are disabled. |
@@ -104,6 +106,24 @@ pug setup --check --format json
 | `zap` | Docker and ZAP | Full scan using a preinstalled digest-pinned ZAP image. |
 
 Repository defaults are `source,secrets,dependencies,actions,infra`. Application defaults are `api,exposure`. `pentest` appears in `not_tested` because Pug supplies no autonomous pentesting agent.
+
+### Rule packs
+
+| Alias | Clone URL |
+| --- | --- |
+| `opengrep` | `https://github.com/opengrep/opengrep-rules.git` |
+| `amplify` | `https://github.com/amplify-security/opengrep-rules.git` |
+| `aikido` | `https://github.com/AikidoSec/opengrep-rules.git` |
+
+`pug rules install` requires Git; `pug doctor` checks whether it is available. Pass an alias, `github.com/owner/repo`, or an HTTPS Git URL. A `file://` URL can use a local mirror. For URLs, the install name is the repository's final path component without `.git`. Invalid names and names reserved for built-in aliases are usage errors. URLs must not contain credentials, a query, or a fragment.
+
+Without `@COMMIT`, each install clones the remote default branch HEAD, including when the pack is already installed. Append a full commit ID to select a revision. Pug clones into a temporary directory under `PUG_HOME/rules` and replaces `PUG_HOME/rules/NAME` after Git succeeds. `--timeout` (default `5m`) limits each repository install. Pug records no separate manifest; it reads the commit from the checkout.
+
+A pack can also be a local directory. Pug selects regular `.yml` and `.yaml` rule files anywhere in it, excluding hidden directories, symlinks, test fixtures (`*.test.yml`, `*.test.yaml`, `*.fixed.*`), and YAML without a top-level `rules` list. A file with a top-level `rules` list that is invalid, such as a rule without an `id`, is a usage error that names the file. Each selected file has a 16 MiB limit. Profiles come from `configs/*.list`. A pack without an explicit profile uses `configs/default.list` if present, otherwise every rule file.
+
+Pug qualifies pack rule IDs so they stay the same across profiles and do not collide. A pack rule ID is the pack name, the rule file's path with dots for slashes and without its extension, and the upstream ID when it differs from the file name. For example, rule `no-eval` in `team/python/no-eval.yaml` from pack `mypack` becomes `mypack.team.python.no-eval`. A directory path uses its base name as the pack name. Starter and local file rules keep their IDs. Pug combines all selected rules into one config for each scan. A rule that several values select runs once.
+
+Some profile entries name files that are absent from the checkout. Pug skips them and counts them in the check's reason. The report lists them in `rules.unresolved`.
 
 ### Application check limits
 
@@ -128,13 +148,13 @@ The live application tests in [`internal/scanner/scanner_integration_test.go`](.
 | `--fail-on` | `scan`, `image`, `app` | `high` | Minimum severity that produces exit code `1`. Accepts `info`, `low`, `medium`, `high`, `critical`, or `none`. |
 | `--timeout` | `scan`, `image`, `app` | `5m` | Sets a positive deadline per scanner, including its version lookup. |
 | `--checks` | `scan`, `app` | Target defaults | Selects checks by name. Duplicate or unsupported names are invalid. |
-| `--rules` | `scan` | Bundled rules | Selects a reviewed local OpenGrep rules file. |
+| `--rules` | `scan` | `starter` | Selects the `source` rules. Accepts `starter`, an installed pack, `NAME:PROFILE`, a reviewed local rules file, or `DIR[:PROFILE]`. A value that ends in `.yml` or `.yaml` or contains a path separator is a path. Repeat the flag or separate values with commas. |
 | `--allow-active` | `app` | `false` | Required for every application scan. |
 | `--schema` | `app` | Unset | Supplies the local OpenAPI schema for `api`. |
 | `--templates` | `app` | Unset | Supplies the reviewed local templates for `exposure`. |
 | `--zap-image` | `app` | The tested image in [`internal/tools/tools.go`](../internal/tools/tools.go) | Selects a preinstalled digest-pinned image for `zap`. |
 
-A missing schema or template option skips the check that needs it and makes the report incomplete. A supplied path that does not exist is a usage error. An unavailable ZAP image makes the check fail. The ZAP container uses `--pull=never`. Trivy's `image` check can fetch its target image.
+An invalid pack or profile name, a missing local rules path, a profile absent from an installed pack, or two different rules with the same ID is a usage error. A selected pack that is not installed skips `source` and makes the report incomplete. A missing schema or template option skips the check that needs it and makes the report incomplete. A supplied path that does not exist is a usage error. An unavailable ZAP image makes the check fail. The ZAP container uses `--pull=never`. Trivy's `image` check can fetch its target image.
 
 Image references require a lowercase, 64-character SHA-256 digest. Application targets must be absolute HTTP or HTTPS URLs without embedded credentials, query parameters, or fragments.
 
@@ -182,6 +202,8 @@ Reports use the schema in [`internal/report/report.go`](../internal/report/repor
 
 Check statuses are `completed`, `failed`, `unavailable`, or `skipped`. A `source` check completes when OpenGrep could only partly parse some target files, such as templates or files with syntax errors. Its reason counts the warnings. An invalid rule fails the check. Successful report parsing records `evidence_sha256`, a SHA-256 hash of the scanner report. The sandbox hashes command stdout instead. Neither hash authenticates its source.
 
+The `source` check also records `rules`. It holds the `--rules` values, the commit of each Git checkout, the rule count, any `unresolved` profile entries, and `sha256`, the hash of the combined rules config.
+
 Pug deletes temporary scanner reports after each check. Recorded commands can contain paths to those deleted reports. Saved reports use atomic replacement and mode `0600` on POSIX filesystems. Imported reports have a 32 MiB limit and validated finding fingerprints.
 
 Finding fingerprints include the check, tool, rule, location, line number, and message. The same evidence produces the same fingerprint. Moving a line or changing a scanner message can change the fingerprint.
@@ -194,7 +216,7 @@ Finding fingerprints include the check, tool, rule, location, line number, and m
 | --- | --- |
 | `new` | The finding appears only in the later report. |
 | `persistent` | The finding appears in both reports. |
-| `absent` | The later completed check did not report the finding. This does not prove a fix. |
-| `unverified` | The later report does not complete the check needed to evaluate the missing finding. |
+| `absent` | The later completed check ran the same rules and did not report the finding. This does not prove a fix. |
+| `unverified` | The later report does not complete the check needed to evaluate the missing finding, or the check ran different rules. |
 
-Database and rule changes can affect comparisons. The [Verification record](verification.md) lists tested scanner versions and results. The [Security boundaries](security.md) explain coverage and isolation limits.
+Pug compares rules by the `rules.sha256` of each check. Database changes can affect comparisons. The [Verification record](verification.md) lists tested scanner versions and results. The [Security boundaries](security.md) explain coverage and isolation limits.

@@ -30,3 +30,35 @@ func TestDiffDoesNotTreatFailedChecksAsFixes(t *testing.T) {
 		t.Fatal("different targets compared")
 	}
 }
+
+func TestDiffDoesNotTreatRuleChangesAsFixes(t *testing.T) {
+	t.Parallel()
+	f := Finding{Check: "source", Tool: "opengrep", Rule: "amplify.python.lang.eval", Location: "app.py", Line: 2, Severity: "high"}
+	f.Identify()
+	audit := &RuleProvenance{Specs: []string{"amplify:security-audit"}, SHA256: "aaa"}
+	cases := []struct {
+		name       string
+		before     *RuleProvenance
+		after      *RuleProvenance
+		absent     int
+		unverified int
+	}{
+		{name: "same rules", before: audit, after: &RuleProvenance{Specs: []string{"amplify:security-audit"}, SHA256: "aaa"}, absent: 1},
+		{name: "different rules", before: audit, after: &RuleProvenance{Specs: []string{"amplify:secrets"}, SHA256: "bbb"}, unverified: 1},
+		{name: "same specs with different rules", before: audit, after: &RuleProvenance{Specs: []string{"amplify:security-audit"}, SHA256: "bbb"}, unverified: 1},
+		{name: "report without provenance", before: nil, after: audit, unverified: 1},
+		{name: "later report without provenance", before: audit, after: nil, unverified: 1},
+		{name: "neither has provenance", before: nil, after: nil, absent: 1},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			before := Report{Target: "/repo", Checks: []Check{{Name: "source", Status: "completed", Rules: tt.before, Findings: []Finding{f}}}}
+			after := Report{Target: "/repo", Checks: []Check{{Name: "source", Status: "completed", Rules: tt.after, Findings: []Finding{}}}}
+			diff, err := Compare(before, after)
+			if err != nil || len(diff.Absent) != tt.absent || len(diff.Unverified) != tt.unverified {
+				t.Fatalf("incorrect comparison: %+v, %v", diff, err)
+			}
+		})
+	}
+}

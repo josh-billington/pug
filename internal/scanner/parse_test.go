@@ -1,7 +1,6 @@
 package scanner
 
 import (
-	"errors"
 	"strings"
 	"testing"
 )
@@ -23,9 +22,8 @@ func TestSARIFEvidence(t *testing.T) {
 	}
 }
 
-func TestSARIFSeverityFallsBackToRuleDefaultLevel(t *testing.T) {
+func TestOpenGrepSARIFSeverityFallsBackToRuleDefaultLevel(t *testing.T) {
 	t.Parallel()
-	// OpenGrep's shape: results have no level, rules carry defaultConfiguration.level.
 	data := []byte(`{"version":"2.1.0","runs":[{"tool":{"driver":{"rules":[
 		{"id":"go-md5","defaultConfiguration":{"level":"warning"}},
 		{"id":"ruby-eval","defaultConfiguration":{"level":"error"}},
@@ -49,21 +47,6 @@ func TestSARIFSeverityFallsBackToRuleDefaultLevel(t *testing.T) {
 	}
 	if len(findings) != len(want) {
 		t.Fatalf("got %d findings, want %d", len(findings), len(want))
-	}
-}
-
-func TestSARIFWarningsMeanPartialCoverage(t *testing.T) {
-	t.Parallel()
-	data := []byte(`{"version":"2.1.0","runs":[{"invocations":[{"executionSuccessful":true,"toolExecutionNotifications":[
-		{"level":"warning","message":{"text":"Syntax error at line bad.rb:2: SECRET_SOURCE_TEXT"}}]}],
-		"results":[{"ruleId":"ruby-eval","message":{"text":"eval"}}]}]}`)
-	findings, err := parseSARIF(data, "opengrep")
-	var partial partialCoverage
-	if !errors.As(err, &partial) || len(findings) != 1 {
-		t.Fatalf("findings = %+v, error = %v", findings, err)
-	}
-	if strings.Contains(partial.Error(), "SECRET_SOURCE_TEXT") {
-		t.Fatalf("reason quotes notification text: %q", partial.Error())
 	}
 }
 

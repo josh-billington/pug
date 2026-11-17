@@ -42,7 +42,7 @@ Install with `go install github.com/josh-billington/pug/cmd/pug@latest`. This in
 The following guides cover tasks beyond the first scan:
 
 - [Install scanners](docs/setup.md), including check-only setup and ZAP.
-- [Run scans and compare reports](docs/scanning.md) for repositories, images, and applications.
+- [Run scans and compare reports](docs/scanning.md) for repositories, images, and applications, including upstream rule packs.
 - [Run an offline command in the sandbox](docs/sandbox.md).
 - [Run Pug on a VPS](docs/vps.md) through SSH.
 - [Build and test Pug](docs/testing.md) before changing the code.

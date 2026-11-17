@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/josh-billington/pug/internal/report"
+	"github.com/josh-billington/pug/internal/rules"
 	"github.com/josh-billington/pug/internal/runner"
 	"github.com/josh-billington/pug/internal/sandbox"
 	"github.com/josh-billington/pug/internal/scanner"
@@ -65,14 +66,13 @@ func newRoot(version string) *cobra.Command {
 	root.AddCommand(scanCommand("app", "app", version))
 	root.AddCommand(doctorCommand())
 	root.AddCommand(setupCommand())
+	root.AddCommand(rulesCommand())
 	root.AddCommand(diffCommand())
 	root.AddCommand(sandboxCommand(version))
 	usageArgs(root)
 	return root
 }
 
-// usageArgs makes every positional-argument error a usage error (exit 2),
-// including cobra's own validators such as cobra.NoArgs.
 func usageArgs(cmd *cobra.Command) {
 	if validate := cmd.Args; validate != nil {
 		cmd.Args = func(c *cobra.Command, args []string) error {
@@ -92,6 +92,7 @@ func usageArgs(cmd *cobra.Command) {
 func scanCommand(name, kind, version string) *cobra.Command {
 	options := scanner.Options{Kind: kind, Version: version}
 	var format, output, failOn string
+	var ruleValues []string
 	var active bool
 	cmd := &cobra.Command{
 		Use: name + " TARGET", Short: map[string]string{
@@ -114,6 +115,13 @@ func scanCommand(name, kind, version string) *cobra.Command {
 			}
 			if kind == "app" && !active {
 				return usageError("app tests send active requests; explicitly pass --allow-active for an authorized test target")
+			}
+			if kind == "repo" {
+				specs, err := rules.ParseSpecs(ruleValues)
+				if err != nil {
+					return usageError("%v", err)
+				}
+				options.Rules = specs
 			}
 			if err := scanner.Validate(&options); err != nil {
 				return usageError("%v", err)
@@ -147,7 +155,7 @@ func scanCommand(name, kind, version string) *cobra.Command {
 	switch kind {
 	case "repo":
 		flags.StringSliceVar(&options.Checks, "checks", scanner.RepositoryChecks, "Checks: source,secrets,dependencies,actions,infra")
-		flags.StringVar(&options.Rules, "rules", "", "Reviewed local OpenGrep rules file; default is the bundled starter pack")
+		flags.StringSliceVar(&ruleValues, "rules", []string{"starter"}, "Source rules, repeated or comma-separated: starter, NAME[:PROFILE], a local .yml file, or DIR[:PROFILE]")
 	case "image":
 		options.Checks = []string{"image"}
 	case "app":
