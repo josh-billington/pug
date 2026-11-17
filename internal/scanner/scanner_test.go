@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/josh-billington/pug/internal/report"
+	"github.com/josh-billington/pug/internal/rules"
 	"github.com/josh-billington/pug/internal/runner"
 )
 
@@ -139,24 +141,94 @@ func TestJoinReason(t *testing.T) {
 	}
 }
 
-func TestSourceRunsBesideRulesForStableRuleIDs(t *testing.T) {
+func TestSourceRunsBesideComposedRulesForStableRuleIDs(t *testing.T) {
 	temp := t.TempDir()
-	p, err := buildPlan(Options{Kind: "repo", Target: "/abs/repo", Checks: []string{"source"}}, "source", temp)
+	custom := filepath.Join(t.TempDir(), "team", "my-rules.yml")
+	if err := os.MkdirAll(filepath.Dir(custom), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(custom, []byte("rules:\n  - id: team-rule\n    languages: [go]\n    severity: INFO\n    message: m\n    pattern: f()\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	options := Options{Kind: "repo", Target: t.TempDir(), Checks: []string{"source"}, Timeout: time.Second,
+		Rules: []rules.Spec{{Kind: rules.StarterSpec}, {Kind: rules.FileSpec, Path: custom}}}
+	if err := Validate(&options); err != nil {
+		t.Fatal(err)
+	}
+	p, err := buildPlan(options, "source", temp)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if p.invocation.Dir != temp {
 		t.Fatalf("OpenGrep must run in the rules directory, got %q", p.invocation.Dir)
 	}
-	if !slices.Contains(p.invocation.Args, "rules.yml") || slices.Contains(p.invocation.Args, filepath.Join(temp, "rules.yml")) {
-		t.Fatalf("config must be passed by base name: %v", p.invocation.Args)
+	if !slices.Contains(p.invocation.Args, "rules.yml") || slices.Contains(p.invocation.Args, "--strict") {
+		t.Fatalf("config must be passed by base name, without --strict: %v", p.invocation.Args)
 	}
-	custom := filepath.Join(t.TempDir(), "team", "my-rules.yml")
-	p, err = buildPlan(Options{Kind: "repo", Target: "/abs/repo", Rules: custom}, "source", temp)
-	if err != nil {
+	config, err := os.ReadFile(filepath.Join(temp, "rules.yml"))
+	if err != nil || !strings.Contains(string(config), "id: team-rule") || !strings.Contains(string(config), "id: javascript-eval") {
+		t.Fatalf("composed config lacks the selected rules: %v\n%s", err, config)
+	}
+	if p.rules == nil || p.rules.SHA256 != report.Digest(config) || !slices.Equal(p.rules.Specs, []string{"starter", custom}) {
+		t.Fatalf("provenance does not describe the config: %+v", p.rules)
+	}
+}
+
+// installFakePack writes a pack directory as Install would leave it.
+func installFakePack(t *testing.T, home string, pack rules.Pack, files map[string]string) {
+	t.Helper()
+	dir := rules.Dir(home, pack.Name)
+	files["manifest.json"] = `{"pack":"` + pack.Name + `","commit":"` + pack.Commit + `","sha256":"` + pack.SHA256 + `"}`
+	for name, data := range files {
+		path := filepath.Join(dir, name)
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestSourceCheckWithRulePacks(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("PUG_HOME", home)
+	pack := rules.Pack{
+		Name: "fixture", Repo: "example/rules", Commit: strings.Repeat("a", 40), SHA256: strings.Repeat("b", 64),
+		License: "MIT", RuleDirs: []string{"python"}, ProfilesDir: "configs", DefaultProfile: "default",
+	}
+	sarif := `{"version":"2.1.0","runs":[{"tool":{"driver":{"rules":[{"id":"fixture.python.eval","defaultConfiguration":{"level":"error"}}]}},` +
+		`"results":[{"ruleId":"fixture.python.eval","message":{"text":"eval"},"locations":[{"physicalLocation":{"artifactLocation":{"uri":"a.py"},"region":{"startLine":1}}}]}]}]}`
+	executor := executorFunc(func(_ context.Context, i runner.Invocation) runner.Result {
+		if n := slices.Index(i.Args, "--output"); n >= 0 {
+			if err := os.WriteFile(i.Args[n+1], []byte(sarif), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return runner.Result{}
+	})
+	options := Options{Kind: "repo", Target: t.TempDir(), Checks: []string{"source"}, Timeout: time.Second, Rules: []rules.Spec{{Kind: rules.PackSpec, Pack: pack}}}
+	if err := Validate(&options); err != nil {
 		t.Fatal(err)
 	}
-	if p.invocation.Dir != filepath.Dir(custom) || !slices.Contains(p.invocation.Args, "my-rules.yml") {
-		t.Fatalf("custom rules must also run beside their file: dir=%q args=%v", p.invocation.Dir, p.invocation.Args)
+	check := Scan(t.Context(), options, executor).Checks[0]
+	if check.Status != "skipped" || !strings.Contains(check.Reason, "run: pug rules install fixture") {
+		t.Fatalf("missing pack did not skip the check: %+v", check)
+	}
+
+	installFakePack(t, home, pack, map[string]string{
+		"python/eval.yaml":     "rules:\n  - id: eval\n    languages: [python]\n    severity: ERROR\n    message: eval\n    pattern: eval(...)\n",
+		"configs/default.list": "python/eval.yaml:eval\npython/gone.yaml:gone\n",
+	})
+	options = Options{Kind: "repo", Target: options.Target, Checks: []string{"source"}, Timeout: time.Second, Rules: []rules.Spec{{Kind: rules.PackSpec, Pack: pack}}}
+	if err := Validate(&options); err != nil {
+		t.Fatal(err)
+	}
+	check = Scan(t.Context(), options, executor).Checks[0]
+	if check.Status != "completed" || len(check.Findings) != 1 || check.Findings[0].Severity != "high" {
+		t.Fatalf("pack scan did not complete with its finding: %+v", check)
+	}
+	if check.Rules == nil || check.Rules.Packs["fixture"] != pack.Commit || len(check.Rules.Unresolved) != 1 || !strings.Contains(check.Reason, "skipped 1 profile entries") {
+		t.Fatalf("provenance or unresolved entries not reported: %+v reason=%q", check.Rules, check.Reason)
 	}
 }

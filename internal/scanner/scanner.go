@@ -3,7 +3,6 @@ package scanner
 
 import (
 	"context"
-	_ "embed"
 	"errors"
 	"fmt"
 	"io"
@@ -12,16 +11,15 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/josh-billington/pug/internal/report"
+	"github.com/josh-billington/pug/internal/rules"
 	"github.com/josh-billington/pug/internal/runner"
 	"github.com/josh-billington/pug/internal/tools"
 )
-
-//go:embed rules.yml
-var rules []byte
 
 var AllChecks = []string{"source", "secrets", "dependencies", "actions", "infra", "image", "api", "exposure", "zap", "pentest"}
 var RepositoryChecks = []string{"source", "secrets", "dependencies", "actions", "infra"}
@@ -49,15 +47,42 @@ func (p partialCoverage) Error() string { return string(p) }
 func ValidImage(image string) bool { return digestImage.MatchString(image) }
 
 type Options struct {
-	Target    string
-	Kind      string
-	Checks    []string
-	Timeout   time.Duration
-	Rules     string
+	Target  string
+	Kind    string
+	Checks  []string
+	Timeout time.Duration
+	// Rules selects the source check's rules; empty means the starter rules.
+	Rules     []rules.Spec
 	Schema    string
 	Templates string
 	ZAPImage  string
 	Version   string
+
+	ruleset      *rules.Ruleset
+	missingPacks []string
+}
+
+// resolveRules composes the source rules once, unless a selected pack is not
+// installed, in which case the source check is skipped.
+func (o *Options) resolveRules() error {
+	specs := o.Rules
+	if len(specs) == 0 {
+		specs = []rules.Spec{{Kind: rules.StarterSpec}}
+	}
+	sources, missing, err := rules.Resolve(specs)
+	if err != nil {
+		return err
+	}
+	o.missingPacks = missing
+	if len(missing) > 0 {
+		return nil
+	}
+	ruleset, err := rules.Compose(sources)
+	if err != nil {
+		return err
+	}
+	o.ruleset = &ruleset
+	return nil
 }
 
 func ValidateURL(raw string) error {
@@ -116,7 +141,27 @@ func Validate(options *Options) error {
 		}
 		seen[check] = true
 	}
-	for name, path := range map[string]string{"rules": options.Rules, "schema": options.Schema, "templates": options.Templates} {
+	for i, spec := range options.Rules {
+		if spec.Kind != rules.FileSpec {
+			continue
+		}
+		info, err := os.Stat(spec.Path)
+		if err != nil {
+			return fmt.Errorf("rules must reference an existing local path: %w", err)
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("rules must reference a regular file")
+		}
+		if options.Rules[i].Path, err = filepath.Abs(spec.Path); err != nil {
+			return fmt.Errorf("resolve rules: %w", err)
+		}
+	}
+	if slices.Contains(options.Checks, "source") {
+		if err := options.resolveRules(); err != nil {
+			return err
+		}
+	}
+	for name, path := range map[string]string{"schema": options.Schema, "templates": options.Templates} {
 		if path == "" {
 			continue
 		}
@@ -132,8 +177,6 @@ func Validate(options *Options) error {
 			return fmt.Errorf("resolve %s: %w", name, err)
 		}
 		switch name {
-		case "rules":
-			options.Rules = absolute
 		case "schema":
 			options.Schema = absolute
 		case "templates":
@@ -160,7 +203,7 @@ func Scan(ctx context.Context, options Options, executor runner.Executor) report
 	if options.Kind == "repo" {
 		r.Limitations = append(r.Limitations,
 			"Scans inspect the working tree, not Git history or only the PR diff; files may change during a scan.",
-			"Bundled source rules are a small starter pack; Actions linting is not a complete workflow security audit.")
+			"Source checks run only the selected rules, by default a small starter pack; Actions linting is not a complete workflow security audit.")
 	}
 	if options.Kind == "app" {
 		r.Limitations = append(r.Limitations,
@@ -187,6 +230,7 @@ type plan struct {
 	// container writes there may be owned by a uid the host user cannot remove.
 	mount string
 	image string
+	rules *report.RuleProvenance
 }
 
 func buildPlan(options Options, name, temp string) (plan, error) {
@@ -203,17 +247,22 @@ func buildPlan(options Options, name, temp string) (plan, error) {
 		p.invocation.Args = []string{"dir", options.Target, "--no-banner", "--redact=100", "--exit-code=10", "--report-format=sarif", "--report-path", artifact}
 		p.accepted[10] = true
 	case "source":
-		config := options.Rules
-		if config == "" {
-			config = filepath.Join(temp, "rules.yml")
-			if err := os.WriteFile(config, rules, 0o600); err != nil {
-				return p, fmt.Errorf("write bundled rules: %w", err)
+		if options.ruleset == nil && len(options.missingPacks) == 0 {
+			if err := options.resolveRules(); err != nil {
+				return p, err
 			}
 		}
+		if missing := options.missingPacks; len(missing) > 0 {
+			return p, fmt.Errorf("rule pack %s not installed; run: pug rules install %s", strings.Join(missing, ", "), strings.Join(missing, " "))
+		}
+		if err := os.WriteFile(filepath.Join(temp, "rules.yml"), options.ruleset.Config, 0o600); err != nil {
+			return p, fmt.Errorf("write composed rules: %w", err)
+		}
+		provenance := options.ruleset.Provenance
+		p.rules = &provenance
 		// OpenGrep prefixes rule IDs with the config's directory relative to the working
 		// directory; running beside the config keeps IDs, and so fingerprints, stable.
-		p.invocation.Dir = filepath.Dir(config)
-		p.invocation.Args = []string{"scan", "--config", filepath.Base(config), "--sarif", "--output", artifact, "--disable-version-check", options.Target}
+		p.invocation.Args = []string{"scan", "--config", "rules.yml", "--sarif", "--output", artifact, "--disable-version-check", options.Target}
 	case "dependencies":
 		p.invocation.Args = []string{"fs", "--scanners", "vuln", "--format", "sarif", "--output", artifact, options.Target}
 	case "infra":
@@ -315,6 +364,7 @@ func runCheck(ctx context.Context, options Options, name string, executor runner
 		check.Status, check.Reason = "skipped", err.Error()
 		return check
 	}
+	check.Rules = p.rules
 	check.Command = append([]string{p.invocation.Program}, p.invocation.Args...)
 	scanCtx, cancel := context.WithTimeout(ctx, options.Timeout)
 	defer cancel()
@@ -388,6 +438,9 @@ func runCheck(ctx context.Context, options Options, name string, executor runner
 	if result.ExitCode != 0 && len(findings) == 0 {
 		check.Reason = "scanner returned a finding exit code but its report has no findings"
 		return check
+	}
+	if p.rules != nil && len(p.rules.Unresolved) > 0 {
+		check.Reason = joinReason(check.Reason, fmt.Sprintf("skipped %d profile entries that name no installed rule; see rules.unresolved", len(p.rules.Unresolved)))
 	}
 	check.Status = "completed"
 	return check

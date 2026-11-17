@@ -3,8 +3,14 @@
 package scanner
 
 import (
+	"archive/tar"
+	"bytes"
+	"compress/gzip"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -16,6 +22,7 @@ import (
 	"time"
 
 	"github.com/josh-billington/pug/internal/report"
+	"github.com/josh-billington/pug/internal/rules"
 	"github.com/josh-billington/pug/internal/runner"
 	"github.com/josh-billington/pug/internal/tools"
 )
@@ -109,8 +116,8 @@ func TestRealOpenGrepParseProblems(t *testing.T) {
 			repo := t.TempDir()
 			fixtureFile(t, repo, "good.rb", "eval(params[:x])\n")
 			fixtureFile(t, repo, "bad.rb", "def broken(\n  eval(x\nclass << <<< end end end )))\n")
-			rules := fixtureFile(t, t.TempDir(), "rules.yml", tt.rules)
-			options := Options{Kind: "repo", Target: repo, Checks: []string{"source"}, Rules: rules, Timeout: 3 * time.Minute, Version: "integration"}
+			rulesFile := fixtureFile(t, t.TempDir(), "rules.yml", tt.rules)
+			options := Options{Kind: "repo", Target: repo, Checks: []string{"source"}, Rules: []rules.Spec{{Kind: rules.FileSpec, Path: rulesFile}}, Timeout: 3 * time.Minute, Version: "integration"}
 			if err := Validate(&options); err != nil {
 				t.Fatal(err)
 			}
@@ -122,6 +129,88 @@ func TestRealOpenGrepParseProblems(t *testing.T) {
 				t.Fatalf("finding in the parsable file lost or misrated: %+v", check.Findings)
 			}
 		})
+	}
+}
+
+type archiveTransport []byte
+
+func (a archiveTransport) RoundTrip(*http.Request) (*http.Response, error) {
+	return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewReader(a)), Header: http.Header{}}, nil
+}
+
+func packArchive(t *testing.T, files map[string]string) []byte {
+	t.Helper()
+	var data bytes.Buffer
+	gz := gzip.NewWriter(&data)
+	tw := tar.NewWriter(gz)
+	for name, body := range files {
+		if err := tw.WriteHeader(&tar.Header{Name: "fixture-rules-0123/" + name, Mode: 0o644, Size: int64(len(body)), Typeflag: tar.TypeReg}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tw.Write([]byte(body)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := gz.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return data.Bytes()
+}
+
+// TestRealRulePackScan installs a local fixture pack through the real
+// installer and scans with real OpenGrep, so no network is needed.
+func TestRealRulePackScan(t *testing.T) {
+	requireTool(t, "opengrep")
+	home := t.TempDir()
+	t.Setenv("PUG_HOME", home)
+	archive := packArchive(t, map[string]string{
+		"LICENSE": "MIT",
+		"python/lang/eval.yaml": "rules:\n" +
+			"  - id: eval\n    languages: [python]\n    severity: ERROR\n    message: eval of input\n    pattern: eval(...)\n" +
+			"  - id: exec-used\n    languages: [python]\n    severity: WARNING\n    message: exec of input\n    pattern: exec(...)\n",
+		// Rule-shaped fixture with no message: OpenGrep rejects the whole config if it is installed.
+		"python/lang/eval.test.yaml": "rules:\n  - id: eval\n    languages: [python]\n    pattern: eval(...)\n",
+		"configs/default.list":       "python/lang/eval.yml:eval\npython/lang/eval.yaml:exec-used\npython/lang/gone.yaml:gone\n",
+	})
+	sum := sha256.Sum256(archive)
+	pack := rules.Pack{
+		Name: "fixture", Repo: "example/rules", Commit: strings.Repeat("0", 40), SHA256: hex.EncodeToString(sum[:]),
+		License: "MIT", RuleDirs: []string{"python"}, ProfilesDir: "configs", DefaultProfile: "default",
+	}
+	if _, _, err := rules.Install(t.Context(), &http.Client{Transport: archiveTransport(archive)}, home, pack); err != nil {
+		t.Fatal(err)
+	}
+	repo := t.TempDir()
+	fixtureFile(t, repo, "app.py", "def handler(x, y):\n    eval(x)\n    exec(y)\n")
+	fixtureFile(t, repo, "broken.py", "def broken(:\n    eval(\n")
+	scan := func() report.Report {
+		options := Options{Kind: "repo", Target: repo, Checks: []string{"source"}, Timeout: 3 * time.Minute, Version: "integration",
+			Rules: []rules.Spec{{Kind: rules.PackSpec, Pack: pack}}}
+		if err := Validate(&options); err != nil {
+			t.Fatal(err)
+		}
+		return Scan(t.Context(), options, runner.Local{})
+	}
+	before := scan()
+	check := before.Checks[0]
+	got := map[string]string{}
+	for _, finding := range check.Findings {
+		got[finding.Rule] = finding.Severity
+	}
+	want := map[string]string{"fixture.python.lang.eval": "high", "fixture.python.lang.eval.exec-used": "medium"}
+	if check.Status != "completed" || fmt.Sprint(got) != fmt.Sprint(want) {
+		data, _ := json.MarshalIndent(check, "", "  ")
+		t.Fatalf("pack scan findings = %v, want %v:\n%s", got, want, data)
+	}
+	if !strings.Contains(check.Reason, "partial") || !strings.Contains(check.Reason, "skipped 1 profile entries") || check.Rules == nil || check.Rules.Packs["fixture"] != pack.Commit {
+		t.Fatalf("reason or provenance incomplete: %q %+v", check.Reason, check.Rules)
+	}
+	diff, err := report.Compare(before, scan())
+	if err != nil || len(diff.New) != 0 || len(diff.Absent) != 0 || len(diff.Unverified) != 0 || len(diff.Persistent) != 2 {
+		t.Fatalf("rescan with the same pack was not stable: %+v, %v", diff, err)
 	}
 }
 

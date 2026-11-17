@@ -39,7 +39,9 @@ type Check struct {
 	DurationMS     int64     `json:"duration_ms"`
 	ExitCode       int       `json:"exit_code"`
 	EvidenceSHA256 string    `json:"evidence_sha256,omitempty"`
-	Findings       []Finding `json:"findings"`
+	// Rules is set for checks that run a composed rules config.
+	Rules    *RuleProvenance `json:"rules,omitempty"`
+	Findings []Finding       `json:"findings"`
 }
 
 // RuleProvenance identifies the rules a check ran. Two reports whose

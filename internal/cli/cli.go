@@ -8,11 +8,13 @@ import (
 	"fmt"
 	"io"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/josh-billington/pug/internal/report"
+	"github.com/josh-billington/pug/internal/rules"
 	"github.com/josh-billington/pug/internal/runner"
 	"github.com/josh-billington/pug/internal/sandbox"
 	"github.com/josh-billington/pug/internal/scanner"
@@ -73,6 +75,7 @@ func newRoot(version string) *cobra.Command {
 func scanCommand(name, kind, version string) *cobra.Command {
 	options := scanner.Options{Kind: kind, Version: version}
 	var format, output, failOn string
+	var ruleValues []string
 	var active bool
 	cmd := &cobra.Command{
 		Use: name + " TARGET", Short: map[string]string{
@@ -95,6 +98,13 @@ func scanCommand(name, kind, version string) *cobra.Command {
 			}
 			if kind == "app" && !active {
 				return usageError("app tests send active requests; explicitly pass --allow-active for an authorized test target")
+			}
+			if kind == "repo" {
+				specs, err := rules.ParseSpecs(ruleValues)
+				if err != nil {
+					return usageError("%v", err)
+				}
+				options.Rules = specs
 			}
 			if err := scanner.Validate(&options); err != nil {
 				return usageError("%v", err)
@@ -128,7 +138,7 @@ func scanCommand(name, kind, version string) *cobra.Command {
 	switch kind {
 	case "repo":
 		flags.StringSliceVar(&options.Checks, "checks", scanner.RepositoryChecks, "Checks: source,secrets,dependencies,actions,infra")
-		flags.StringVar(&options.Rules, "rules", "", "Reviewed local OpenGrep rules file; default is the bundled starter pack")
+		flags.StringSliceVar(&ruleValues, "rules", []string{"starter"}, "Source rules, repeated or comma-separated: starter, an installed pack ("+strings.Join(rules.Names(), ", ")+"), PACK:PROFILE, or a reviewed local .yml file")
 	case "image":
 		options.Checks = []string{"image"}
 	case "app":
