@@ -24,7 +24,7 @@ See [Checks](commands.md#checks) for the tool and scope of each check. A missing
 
 ## Use a rule pack
 
-The `source` check runs four starter rules by default. Rule packs add maintained upstream OpenGrep rules. Pug pins each pack to a commit and a SHA-256 tarball digest, and downloads a pack only when you install it. Scans never use the network.
+The `source` check runs four starter rules by default. Rule packs add maintained upstream OpenGrep rules. `pug rules install` requires Git and fetches rules from upstream. Source scans use the installed files and never fetch rules.
 
 1. Install the pack.
 
@@ -38,13 +38,22 @@ The `source` check runs four starter rules by default. Rule packs add maintained
 	pug scan /path/to/repo --checks source --rules amplify:security-audit
 	```
 
-`pug rules list` shows each pack, its pinned commit, its license, its profiles, and whether it is installed. A pack without a profile in `--rules` uses its default profile, or every rule if it has no profiles. Pass `--rules` more than once, or separate values with commas, to combine packs, profiles, the starter rules, and local rule files. See [Rule packs](commands.md#rule-packs) for the available packs.
+`pug rules list` shows installed packs with their paths, checkout commits, and profiles, plus the built-in aliases and whether they are installed. Running `pug rules install amplify` again updates it to the remote default branch HEAD. To select a revision, use `pug rules install amplify@COMMIT`, with a full or abbreviated hex commit.
 
-The `opengrep` and `amplify` packs use LGPL-2.1 with the Commons Clause, which restricts selling the rules. Pug does not ship them. It fetches them from upstream when you run `pug rules install`. Review the license before you use a pack.
+Other OpenGrep rules repositories work too:
+
+```sh
+pug rules install github.com/trailofbits/semgrep-rules
+pug scan /path/to/repo --checks source --rules amplify:security-audit,semgrep-rules
+```
+
+A pack without a profile in `--rules` uses `configs/default.list` if it exists, otherwise every rule file. Pass `--rules` more than once, or separate values with commas, to combine packs, profiles, the starter rules, local rule files, and directories such as `./team-rules` or `./team-rules:audit`. See [Rule packs](commands.md#rule-packs) for layout and file-selection details.
+
+The `opengrep` and `amplify` packs use LGPL-2.1 with the Commons Clause, which restricts selling the rules. Pug never ships these Commons Clause rule packs. Each user fetches them from upstream when running `pug rules install`. Review the license before you use a pack.
 
 If a selected pack is not installed, the `source` check is skipped with the install command as its reason, and the report is incomplete.
 
-Compare reports made with the same `--rules` values. When the rules differ, findings missing from the later report are `unverified`, not `absent`.
+`pug diff` compares the composed rules hashes recorded in reports. When the rules differ, findings missing from the later report are `unverified`, not `absent`.
 
 ## Compare reports after a fix
 

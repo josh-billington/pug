@@ -112,19 +112,25 @@ No boat.dev VM was created. Automatic installation was not run on amd64 or Windo
 
 ## Rule pack verification
 
-These runs on November 16, 2026 used OpenGrep 1.33.1 and the pins in [`internal/rules/packs.json`](../internal/rules/packs.json):
+These runs on November 16, 2026 used the built `bin/pug`, OpenGrep 1.33.1, a fresh temporary `PUG_HOME`, and upstream Git repositories:
 
 | Check | Observed result |
 | --- | --- |
-| `pug rules install opengrep amplify aikido` with an empty temporary `PUG_HOME` | Installed 1933, 1907, and 2 rule files. A second `install amplify` reported the pack as already installed. |
-| Two `--rules amplify:security-audit` scans of the same fixture, then `pug diff` | Both completed with 79 findings. The comparison had no `new` or `absent` findings. |
-| A fixture with an unparseable Ruby file | The `source` check completed and its reason reported partial parsing. |
+| `pug rules install amplify`, repeated, then `pug rules install amplify@e7643a008ec9027c96dfef7bdf5aedcac3847da8` | All succeeded at `e7643a008ec9`. The repeated install fetched the upstream default branch again. |
+| `pug rules install github.com/trailofbits/semgrep-rules` | Installed as `semgrep-rules` at `31390b3a99c0`. |
+| `pug rules list` | Listed both installed checkouts, their commits and profiles, and the built-in aliases with install state. |
+| Two `--rules amplify:security-audit` scans of the same fixture, then `pug diff` | Both completed with 224 rules and 79 findings. The comparison had 79 persistent findings, zero new, zero absent, and zero unverified. |
+| `--rules amplify,semgrep-rules`, then the same scan with the Trail of Bits directory path | Both completed with 1,148 rules and 155 findings, with the same composed rules hash. |
+| `--rules notinstalled` | Skipped `source` with `run: pug rules install notinstalled`; exit `3`. |
+| `--rules -x`, `rules install -- -x`, and `rules install amplify@-x` | Rejected as usage errors; exit `2`. |
 
-The unit and integration tests cover profile resolution, ID qualification, alias expansion, archive limits, path escapes, partial parsing, invalid rules, and rule changes in `pug diff`. These tests passed with:
+The audit scans reported one partial-parse warning and one unresolved profile entry. The combined scans reported one partial-parse warning and 30 unresolved profile entries.
+
+Unit tests cover profile resolution, ID qualification, alias expansion, file limits, path escapes, symlink and fixture filtering, CLI errors, and rule changes in `pug diff`. The rule-pack integration test initializes and commits a repository in `t.TempDir`, clones it through a `file://` URL, and runs real OpenGrep. It verifies repeat installs, updates, full and abbreviated commit pins, stable rescans, and missing findings becoming unverified after rules change. These checks passed:
 
 ```sh
-go test ./internal/rules ./internal/report ./internal/cli
-go test -tags=integration ./internal/scanner -run 'TestRealOpenGrepPartialParseCompletesWithoutStrict|TestRealRulePackScan' -count=1
+make check
+go test -tags=integration ./internal/scanner -run 'TestRealOpenGrepPartialParseCompletesWithoutStrict|TestRealRulePackScan' -count=1 -v
 ```
 
 ## Untested capabilities
