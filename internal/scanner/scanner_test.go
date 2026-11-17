@@ -31,6 +31,7 @@ func TestScanCoverage(t *testing.T) {
 		{name: "invalid report", result: runner.Result{}, data: `{}`, status: "failed"},
 		{name: "truncated output", result: runner.Result{Truncated: true}, status: "failed"},
 		{name: "clean scan", result: runner.Result{}, data: `{"version":"2.1.0","runs":[{"results":[]}]}`, status: "completed"},
+		{name: "partial parse", result: runner.Result{}, data: `{"version":"2.1.0","runs":[{"invocations":[{"toolExecutionNotifications":[{"level":"warning"}]}],"results":[]}]}`, status: "completed"},
 		{name: "finding exit without evidence", result: runner.Result{ExitCode: 10}, data: `{"version":"2.1.0","runs":[{"results":[]}]}`, status: "failed"},
 	}
 	for _, tt := range cases {
@@ -55,6 +56,9 @@ func TestScanCoverage(t *testing.T) {
 			r := Scan(t.Context(), Options{Target: t.TempDir(), Kind: "repo", Checks: []string{"secrets"}, Timeout: time.Second}, executor)
 			if r.Checks[0].Status != tt.status || r.Complete != (tt.status == "completed") {
 				t.Fatalf("incorrect coverage: %+v", r)
+			}
+			if tt.name == "partial parse" && !strings.Contains(r.Checks[0].Reason, "partial") {
+				t.Fatalf("partial coverage not explained: %q", r.Checks[0].Reason)
 			}
 			if len(r.NotTested) < len(AllChecks)-1 {
 				t.Fatalf("missing coverage gaps: %+v", r.NotTested)
