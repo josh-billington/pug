@@ -24,7 +24,9 @@ import (
 const (
 	manifestName = "manifest.json"
 	maxEntry     = 1 << 20
-	maxExtracted = 64 << 20
+	// maxArchive bounds the whole decompressed tar stream, including entries
+	// extract skips, which tar still inflates to reach the next header.
+	maxArchive = 64 << 20
 	// A temporary directory this old cannot belong to a running install.
 	staleAfter = time.Hour
 )
@@ -202,8 +204,7 @@ func extract(archive *os.File, tree string, p Pack) (int, error) {
 		return 0, err
 	}
 	defer root.Close()
-	reader := tar.NewReader(gz)
-	var total int64
+	reader := tar.NewReader(&budgetReader{r: gz, left: maxArchive})
 	count := 0
 	for {
 		header, err := reader.Next()
@@ -231,10 +232,6 @@ func extract(archive *os.File, tree string, p Pack) (int, error) {
 		if header.Size > maxEntry {
 			return count, fmt.Errorf("%s exceeds %d bytes", rel, maxEntry)
 		}
-		total += header.Size
-		if total > maxExtracted {
-			return count, fmt.Errorf("pack exceeds %d extracted bytes", maxExtracted)
-		}
 		data, err := io.ReadAll(io.LimitReader(reader, maxEntry))
 		if err != nil {
 			return count, err
@@ -260,4 +257,25 @@ func extract(archive *os.File, tree string, p Pack) (int, error) {
 		return 0, fmt.Errorf("archive contains no rule files")
 	}
 	return count, nil
+}
+
+var errArchiveTooLarge = fmt.Errorf("pack archive expands beyond %d bytes", maxArchive)
+
+// budgetReader fails rather than reporting EOF once its budget is spent, so an
+// oversized archive is an error instead of a silently truncated pack.
+type budgetReader struct {
+	r    io.Reader
+	left int64
+}
+
+func (b *budgetReader) Read(p []byte) (int, error) {
+	if b.left <= 0 {
+		return 0, errArchiveTooLarge
+	}
+	if int64(len(p)) > b.left {
+		p = p[:b.left]
+	}
+	n, err := b.r.Read(p)
+	b.left -= int64(n)
+	return n, err
 }

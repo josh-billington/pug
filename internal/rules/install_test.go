@@ -6,6 +6,7 @@ import (
 	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"io"
 	"io/fs"
 	"net/http"
@@ -215,5 +216,39 @@ func TestInstallRemovesOnlyStaleTemporaryDirectories(t *testing.T) {
 		if _, err := os.Stat(dir); err != nil {
 			t.Fatalf("%s removed: %v", dir, err)
 		}
+	}
+}
+
+func TestInstallBoundsSkippedEntryExpansion(t *testing.T) {
+	t.Parallel()
+	var archive bytes.Buffer
+	compressed := gzip.NewWriter(&archive)
+	writer := tar.NewWriter(compressed)
+	const skipped = maxArchive + 1<<20
+	if err := writer.WriteHeader(&tar.Header{Name: "r/ignored.bin", Mode: 0o600, Size: skipped}); err != nil {
+		t.Fatal(err)
+	}
+	block := make([]byte, 1<<20)
+	for written := 0; written < skipped; written += len(block) {
+		if _, err := writer.Write(block); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := writer.WriteHeader(&tar.Header{Name: "r/python/eval.yaml", Mode: 0o600, Size: int64(len(ruleYAML))}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.WriteString(writer, ruleYAML); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := compressed.Close(); err != nil {
+		t.Fatal(err)
+	}
+	server := &archiveServer{archive: archive.Bytes()}
+	_, _, err := Install(t.Context(), server.client(), t.TempDir(), fixturePack(server.archive))
+	if !errors.Is(err, errArchiveTooLarge) {
+		t.Fatalf("error = %v, want the archive expansion limit", err)
 	}
 }
