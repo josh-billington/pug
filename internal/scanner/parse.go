@@ -198,6 +198,43 @@ func parseNuclei(data []byte) ([]report.Finding, error) {
 	return findings, lines.Err()
 }
 
+// parseTruffleHog keeps only metadata; each JSON line carries the secret in Raw, RawV2, and Redacted.
+func parseTruffleHog(data []byte) ([]report.Finding, error) {
+	findings := []report.Finding{}
+	lines := bufio.NewScanner(bytes.NewReader(data))
+	lines.Buffer(make([]byte, 4096), 2<<20)
+	for lines.Scan() {
+		if len(bytes.TrimSpace(lines.Bytes())) == 0 {
+			continue
+		}
+		var item struct {
+			Detector string `json:"DetectorName"`
+			Source   struct {
+				Data struct {
+					Git struct {
+						Commit string `json:"commit"`
+						File   string `json:"file"`
+						Line   int    `json:"line"`
+					} `json:"Git"`
+				} `json:"Data"`
+			} `json:"SourceMetadata"`
+		}
+		if err := json.Unmarshal(lines.Bytes(), &item); err != nil {
+			return findings, fmt.Errorf("decode trufflehog JSONL: %w", err)
+		}
+		git := item.Source.Data.Git
+		if item.Detector == "" || git.Commit == "" || git.File == "" {
+			return findings, fmt.Errorf("trufflehog result missing detector, commit, or file")
+		}
+		findings = append(findings, report.Finding{
+			Tool: "trufflehog", Rule: tools.Sanitize(item.Detector), Severity: "high",
+			Message:  "Potential secret in Git history at commit " + tools.Sanitize(git.Commit) + "; secret value withheld",
+			Location: tools.Sanitize(git.File), Line: git.Line,
+		})
+	}
+	return findings, lines.Err()
+}
+
 type junitSuite struct {
 	Cases []struct {
 		Name     string `xml:"name,attr"`

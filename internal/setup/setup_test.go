@@ -163,6 +163,7 @@ func TestNextStepUsesOnlyPreparedChecks(t *testing.T) {
 	}{
 		{NativeTools, "pug scan . --output pug-report.json"},
 		{[]string{"gitleaks"}, "pug scan . --checks secrets --output pug-report.json"},
+		{[]string{"trufflehog"}, "pug scan . --checks secrets-history --output pug-report.json"},
 		{[]string{"trivy"}, "pug scan . --checks dependencies,infra --output pug-report.json"},
 		{[]string{"nuclei"}, "pug app http://127.0.0.1:8000 --allow-active --checks exposure --templates /path/to/reviewed-templates"},
 	} {

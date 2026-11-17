@@ -8,7 +8,7 @@ Native scanners inherit your account's permissions and environment. Their parser
 
 Pug passes command arguments without a host shell. The scanners still interpret templates, configuration, external references, and project files. Argument handling therefore does not make hostile inputs safe to scan.
 
-Repository scans inspect the current working tree. They do not freeze the checkout, inspect Git history, or restrict checks to a pull request's diff. Ignore rules, unsupported file types, missing lockfiles, parsing limits, and unavailable databases reduce coverage. A tool can complete with no findings because it has no applicable input.
+Repository scans inspect the current working tree. They do not freeze the checkout or restrict checks to a pull request's diff. Only the opt-in `secrets-history` check reads Git history, through a temporary clone that TruffleHog makes inside the check workspace, which Pug removes after the check, including after a timeout. It reads committed objects on every ref, not uncommitted changes. Ignore rules, unsupported file types, missing lockfiles, parsing limits, and unavailable databases reduce coverage. A tool can complete with no findings because it has no applicable input.
 
 The bundled OpenGrep rules detect a small set of suspicious patterns and can produce false positives. Actionlint checks workflow syntax and metadata. Neither tool provides a complete security assessment.
 
@@ -40,7 +40,7 @@ Each subprocess has a deadline. On Unix, cancellation kills the process group. O
 
 The runner retains at most 16 MiB of stdout and 64 KiB of stderr in memory. Pug omits raw scanner diagnostics from scan reports. Before parsing a report file, Pug checks that it is a regular file no larger than 16 MiB. That check happens after the scanner runs and does not impose a disk quota.
 
-Gitleaks receives full redaction flags. Pug replaces Gitleaks finding messages and omits source snippets from every parser. Reports omit API request and response bodies, but paths, URLs, rule names, and messages can still contain sensitive data.
+Gitleaks receives full redaction flags. TruffleHog's JSON output contains raw secret values. Pug keeps it in memory only, records its SHA-256 digest, and copies only the detector, file, line, and commit into the report. TruffleHog verification is disabled because it would send candidate secrets to provider APIs. Pug replaces Gitleaks and TruffleHog finding messages and omits source snippets from every parser. Reports omit API request and response bodies, but paths, URLs, rule names, and messages can still contain sensitive data.
 
 Saved reports use mode `0600` on POSIX filesystems and atomic replacement. On Windows, report access follows the destination filesystem's ACLs. Pug replaces destination symlinks rather than following them. Imported reports have a 32 MiB limit and validated finding fingerprints.
 

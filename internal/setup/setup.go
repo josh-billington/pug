@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"time"
 
@@ -19,6 +20,9 @@ import (
 )
 
 var NativeTools = []string{"gitleaks", "actionlint", "opengrep", "trivy", "nuclei", "schemathesis"}
+
+// OptionalTools back opt-in checks and install only when named with --tools.
+var OptionalTools = []string{"trufflehog"}
 
 type Options struct {
 	CheckOnly bool
@@ -56,7 +60,7 @@ func Validate(options Options) error {
 	seen := map[string]bool{}
 	for _, name := range options.Tools {
 		valid := false
-		for _, supported := range NativeTools {
+		for _, supported := range append(slices.Clone(NativeTools), OptionalTools...) {
 			valid = valid || name == supported
 		}
 		if !valid || seen[name] {
@@ -172,15 +176,19 @@ func nextStep(selected []string) string {
 	for _, name := range selected {
 		available[name] = true
 	}
-	checks := []string{}
-	for _, check := range scanner.RepositoryChecks {
+	checks, defaults := []string{}, 0
+	for _, check := range append(slices.Clone(scanner.RepositoryChecks), scanner.OptionalRepositoryChecks...) {
 		if available[scanner.Tools[check]] {
 			checks = append(checks, check)
+			if slices.Contains(scanner.RepositoryChecks, check) {
+				defaults++
+			}
 		}
 	}
 	if len(checks) > 0 {
+		// Optional checks stay out of the suggestion once every default is ready.
 		selection := ""
-		if len(checks) != len(scanner.RepositoryChecks) {
+		if defaults != len(scanner.RepositoryChecks) {
 			selection = " --checks " + strings.Join(checks, ",")
 		}
 		return "pug scan ." + selection + " --output pug-report.json"

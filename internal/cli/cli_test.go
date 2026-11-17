@@ -11,6 +11,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/josh-billington/pug/internal/setup"
 )
 
 func TestUsageErrors(t *testing.T) {
@@ -158,7 +160,7 @@ func TestSetupCheckProducesJSONWithoutWriting(t *testing.T) {
 			Status string `json:"status"`
 		} `json:"tools"`
 	}
-	if err := json.Unmarshal(stdout.Bytes(), &result); err != nil || code != 3 || result.Ready || len(result.Tools) != 6 {
+	if err := json.Unmarshal(stdout.Bytes(), &result); err != nil || code != 3 || result.Ready || len(result.Tools) != len(setup.NativeTools) {
 		t.Fatalf("bad setup result: code=%d output=%s err=%v", code, stdout.String(), err)
 	}
 	for _, tool := range result.Tools {

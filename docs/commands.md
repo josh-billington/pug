@@ -34,7 +34,7 @@ pug sandbox --help
 | Flag | Default | Behavior |
 | --- | --- | --- |
 | `--check` | `false` | Checks tools without downloads or installations. |
-| `--tools` | `gitleaks,actionlint,opengrep,trivy,nuclei,schemathesis` | Selects at least one native scanner. Unknown or repeated names are invalid. |
+| `--tools` | `gitleaks,actionlint,opengrep,trivy,nuclei,schemathesis` | Selects at least one native scanner. `trufflehog` installs only when named. Unknown or repeated names are invalid. |
 | `--with-zap` | `false` | Also checks the ZAP image and pulls it if missing. Requires a running Docker daemon. |
 | `--zap-image` | The tested image in [`internal/tools/tools.go`](../internal/tools/tools.go) | Selects the digest-pinned image for `--with-zap`. A custom image also needs `--zap-image` on `pug app`. |
 | `--timeout` | `10m` | Sets a deadline per selected tool installation. Valid values are greater than zero and at most `1h`. |
@@ -69,6 +69,7 @@ Automatic installation supports macOS and Linux with glibc, on amd64 and arm64. 
 | Missing tool | Version installed | Source |
 | --- | --- | --- |
 | Gitleaks | 8.30.1 | Upstream release binary |
+| TruffleHog | 3.99.7 | Upstream release binary |
 | Actionlint | 1.7.12 | Upstream release binary |
 | OpenGrep | 1.33.1 | Upstream release binary |
 | Trivy | 0.76.2 | Upstream release binary |
@@ -97,6 +98,7 @@ pug setup --check --format json
 | --- | --- | --- |
 | `source` | OpenGrep | The rules selected with `--rules`. The default starter rules cover JavaScript `eval`, Python shell and pickle calls, and Go shell calls. |
 | `secrets` | Gitleaks | Current directory contents. Pug excludes Git history, secret values, and source snippets from the report. |
+| `secrets-history` | TruffleHog | Committed Git history on every ref, not uncommitted changes. The target must be the repository root. TruffleHog runs with `--no-verification` and `--no-update`, so it sends no candidate secrets to providers. The `URI` detector is excluded because it flags every URL with embedded credentials, including test fixtures. Pug keeps the detector, file, line, and commit, and drops secret values and committer details. Opt-in only. |
 | `dependencies` | Trivy | Vulnerabilities in supported dependency manifests and lockfiles. |
 | `actions` | Actionlint | GitHub Actions syntax, expressions, and action metadata. Shellcheck and Pyflakes subprocesses are disabled. |
 | `infra` | Trivy | Supported infrastructure and container configuration checks. |
@@ -105,7 +107,7 @@ pug setup --check --format json
 | `exposure` | Nuclei | Supplied local HTTP templates. Redirects and Interactsh callbacks are disabled. |
 | `zap` | Docker and ZAP | Full scan using a preinstalled digest-pinned ZAP image. |
 
-Repository defaults are `source,secrets,dependencies,actions,infra`. Application defaults are `api,exposure`. `pentest` appears in `not_tested` because Pug supplies no autonomous pentesting agent.
+Repository defaults are `source,secrets,dependencies,actions,infra`. Add `secrets-history` with `--checks` after `pug setup --tools trufflehog`. Application defaults are `api,exposure`. `pentest` appears in `not_tested` because Pug supplies no autonomous pentesting agent.
 
 ### Rule packs
 

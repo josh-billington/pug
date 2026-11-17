@@ -26,6 +26,7 @@ The integration runs used OpenGrep 1.33.1, Gitleaks 8.30.1, Actionlint 1.7.12, T
 | Check | Observed result |
 | --- | --- |
 | Gitleaks | Detected a generated fake token, withheld its value, and reported it absent after file removal and a successful retest. |
+| TruffleHog 3.99.7 | On macOS arm64, reported a clean history as clean. Detected a fake token that existed only in a deleted commit, reported that commit, and withheld the token and committer email. Also completed with network access denied. |
 | Actionlint | Detected invalid workflow expressions. |
 | OpenGrep | Detected JavaScript `eval` in a temporary fixture. |
 | Trivy configuration | Detected two Dockerfile misconfigurations using embedded checks. |
@@ -37,7 +38,7 @@ The fixtures exist in temporary test directories. The tests generate fake secret
 
 ```sh
 go test -tags=integration ./internal/scanner \
-	-run 'TestRealRepositoryScanners|TestRealApplicationScanners' -v -count=1 -timeout=15m
+	-run 'TestRealRepositoryScanners|TestRealSecretsHistory|TestRealApplicationScanners' -v -count=1 -timeout=15m
 ```
 
 Counts can change when scanner rules or databases change.

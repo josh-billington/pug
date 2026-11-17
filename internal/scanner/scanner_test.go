@@ -2,6 +2,7 @@ package scanner
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"os/exec"
@@ -307,5 +308,56 @@ func TestSourceRunsTheSelectedPackProfile(t *testing.T) {
 	slices.Sort(got)
 	if want := []string{"fixture.python.eval.eval-in-loop", "fixture.python.exec"}; !slices.Equal(got, want) {
 		t.Fatalf("composed rules = %v, want the audit profile %v", got, want)
+	}
+}
+
+func TestSecretsHistoryReportsCommitsWithoutSecretValues(t *testing.T) {
+	t.Parallel()
+	repo := t.TempDir()
+	if err := os.Mkdir(filepath.Join(repo, ".git"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	secret := "ghp_" + "R8fKq2LmZx7Vb3Nc9Td4Wy6Hs1Pj5Ae0Gu2K"
+	line := `{"SourceMetadata":{"Data":{"Git":{"commit":"1a737cb499e0cd6bedcd19580965340f08df2d2d","file":"old.txt","email":"dev <dev@example.com>","line":1}}},` +
+		`"DetectorName":"Github","Verified":false,"Raw":"` + secret + `","RawV2":"` + secret + `","Redacted":"` + secret + `","ExtraData":{"token":"` + secret + `"}}` + "\n"
+	executor := executorFunc(func(_ context.Context, i runner.Invocation) runner.Result {
+		if len(i.Args) == 1 {
+			return runner.Result{Stdout: []byte("trufflehog 3.99.7\n")}
+		}
+		return runner.Result{ExitCode: 183, Stdout: []byte(line)}
+	})
+	r := Scan(t.Context(), Options{Target: repo, Kind: "repo", Checks: []string{"secrets-history"}, Timeout: time.Second}, executor)
+	check := r.Checks[0]
+	if check.Status != "completed" || check.Tool != "trufflehog" || len(check.Findings) != 1 {
+		t.Fatalf("unexpected check: %+v", check)
+	}
+	for _, flag := range []string{"--no-verification", "--no-update", "--json", "--exclude-detectors=URI"} {
+		if !slices.Contains(check.Command, flag) {
+			t.Fatalf("command lacks %s: %v", flag, check.Command)
+		}
+	}
+	finding := check.Findings[0]
+	if finding.Rule != "Github" || finding.Location != "old.txt" || finding.Line != 1 || finding.Severity != "high" ||
+		!strings.Contains(finding.Message, "1a737cb499e0cd6bedcd19580965340f08df2d2d") {
+		t.Fatalf("finding lost its history location: %+v", finding)
+	}
+	data, err := json.Marshal(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), secret) || strings.Contains(string(data), "dev@example.com") {
+		t.Fatalf("report exposes secret or committer: %s", data)
+	}
+}
+
+func TestSecretsHistoryNeedsRepositoryRoot(t *testing.T) {
+	t.Parallel()
+	executor := executorFunc(func(context.Context, runner.Invocation) runner.Result {
+		t.Error("trufflehog ran outside a repository root")
+		return runner.Result{}
+	})
+	r := Scan(t.Context(), Options{Target: t.TempDir(), Kind: "repo", Checks: []string{"secrets-history"}, Timeout: time.Second}, executor)
+	if check := r.Checks[0]; check.Status != "skipped" || r.Complete || !strings.Contains(check.Reason, ".git") {
+		t.Fatalf("non-repository target was not reported as untested: %+v", r)
 	}
 }

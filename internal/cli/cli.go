@@ -154,7 +154,7 @@ func scanCommand(name, kind, version string) *cobra.Command {
 	flags.DurationVar(&options.Timeout, "timeout", 5*time.Minute, "Timeout per scanner, including version lookup")
 	switch kind {
 	case "repo":
-		flags.StringSliceVar(&options.Checks, "checks", scanner.RepositoryChecks, "Checks: source,secrets,dependencies,actions,infra")
+		flags.StringSliceVar(&options.Checks, "checks", scanner.RepositoryChecks, "Checks: source,secrets,dependencies,actions,infra; opt-in: secrets-history")
 		flags.StringSliceVar(&ruleValues, "rules", []string{"starter"}, "Source rules, repeated or comma-separated: starter, NAME[:PROFILE], a local .yml file, or DIR[:PROFILE]")
 	case "image":
 		options.Checks = []string{"image"}

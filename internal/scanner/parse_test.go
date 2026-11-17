@@ -68,6 +68,8 @@ func TestMalformedReportsNeverPassAsClean(t *testing.T) {
 		{name: "API error", tool: "api", data: `<testsuite><testcase name="GET /"><error/></testcase></testsuite>`},
 		{name: "API skip", tool: "api", data: `<testsuite><testcase name="GET /"><skipped/></testcase></testsuite>`},
 		{name: "empty ZAP", tool: "zap", data: `{"site":[]}`},
+		{name: "trufflehog log noise", tool: "trufflehog", data: "error running scan"},
+		{name: "trufflehog result without commit", tool: "trufflehog", data: `{"DetectorName":"AWS","SourceMetadata":{"Data":{"Filesystem":{"file":"a"}}}}`},
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
@@ -84,6 +86,8 @@ func TestMalformedReportsNeverPassAsClean(t *testing.T) {
 				_, err = parseJUnit([]byte(tt.data))
 			case "zap":
 				_, err = parseZAP([]byte(tt.data))
+			case "trufflehog":
+				_, err = parseTruffleHog([]byte(tt.data))
 			}
 			if err == nil {
 				t.Fatal("malformed or incomplete report accepted as clean")

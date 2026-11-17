@@ -21,11 +21,14 @@ import (
 	"github.com/josh-billington/pug/internal/tools"
 )
 
-var AllChecks = []string{"source", "secrets", "dependencies", "actions", "infra", "image", "api", "exposure", "zap", "pentest"}
+var AllChecks = []string{"source", "secrets", "secrets-history", "dependencies", "actions", "infra", "image", "api", "exposure", "zap", "pentest"}
 var RepositoryChecks = []string{"source", "secrets", "dependencies", "actions", "infra"}
 
+// OptionalRepositoryChecks run only when named with --checks.
+var OptionalRepositoryChecks = []string{"secrets-history"}
+
 var Tools = map[string]string{
-	"source": "opengrep", "secrets": "gitleaks", "dependencies": "trivy",
+	"source": "opengrep", "secrets": "gitleaks", "secrets-history": "trufflehog", "dependencies": "trivy",
 	"actions": "actionlint", "infra": "trivy", "image": "trivy",
 	"api": "schemathesis", "exposure": "nuclei", "zap": "docker",
 }
@@ -102,7 +105,7 @@ func Validate(options *Options) error {
 	allowed := map[string]bool{}
 	switch options.Kind {
 	case "repo":
-		for _, name := range RepositoryChecks {
+		for _, name := range append(slices.Clone(RepositoryChecks), OptionalRepositoryChecks...) {
 			allowed[name] = true
 		}
 		path, err := filepath.Abs(options.Target)
@@ -198,7 +201,8 @@ func Scan(ctx context.Context, options Options, executor runner.Executor) report
 	}
 	if options.Kind == "repo" {
 		r.Limitations = append(r.Limitations,
-			"Scans inspect the working tree, not Git history or only the PR diff; files may change during a scan.",
+			"Scans inspect the working tree, not only the PR diff; files may change during a scan.",
+			"Only the opt-in secrets-history check reads Git history, and it covers commits, not uncommitted changes.",
 			"Source checks run only the selected rules, by default a small starter pack; Actions linting is not a complete workflow security audit.")
 	}
 	if options.Kind == "app" {
@@ -242,6 +246,19 @@ func buildPlan(options Options, name, temp string) (plan, error) {
 		// A separate finding exit code keeps scanner errors distinct from discovered leaks.
 		p.invocation.Args = []string{"dir", options.Target, "--no-banner", "--redact=100", "--exit-code=10", "--report-format=sarif", "--report-path", artifact}
 		p.accepted[10] = true
+	case "secrets-history":
+		if _, err := os.Stat(filepath.Join(options.Target, ".git")); err != nil {
+			return p, fmt.Errorf("target has no .git entry; scan the repository root to read its history")
+		}
+		// Verification would send candidate secrets to provider APIs, and self-update would replace the pinned binary.
+		repo := url.URL{Scheme: "file", Path: "/" + strings.TrimPrefix(filepath.ToSlash(options.Target), "/")}
+		// URI flags every user:password URL; on Pug's own history that was 104 test-fixture findings.
+		p.invocation.Args = []string{"git", repo.String(), "--no-verification", "--no-update", "--no-color", "--json", "--fail", "--fail-on-scan-errors", "--exclude-detectors=URI"}
+		// TruffleHog clones into TMPDIR; inside the workspace, cleanup removes the clone even after a timeout.
+		p.invocation.Env = append(os.Environ(), "TMPDIR="+temp)
+		p.artifact = ""
+		p.parser = parseTruffleHog
+		p.accepted[183] = true
 	case "source":
 		if options.ruleset == nil && len(options.missingPacks) == 0 {
 			if err := options.resolveRules(); err != nil {
