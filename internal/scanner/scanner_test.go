@@ -23,10 +23,12 @@ func (f executorFunc) Run(ctx context.Context, i runner.Invocation) runner.Resul
 func TestScanCoverage(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
-		name   string
-		result runner.Result
-		data   string
-		status string
+		name     string
+		result   runner.Result
+		data     string
+		status   string
+		findings int
+		hidden   string
 	}{
 		{name: "missing tool", result: runner.Result{Err: exec.ErrNotFound, ExitCode: -1}, status: "unavailable"},
 		{name: "runtime failure", result: runner.Result{Err: errors.New("failed"), ExitCode: 2}, status: "failed"},
@@ -34,6 +36,10 @@ func TestScanCoverage(t *testing.T) {
 		{name: "truncated output", result: runner.Result{Truncated: true}, status: "failed"},
 		{name: "clean scan", result: runner.Result{}, data: `{"version":"2.1.0","runs":[{"results":[]}]}`, status: "completed"},
 		{name: "partial parse", result: runner.Result{}, data: `{"version":"2.1.0","runs":[{"invocations":[{"toolExecutionNotifications":[{"level":"warning"}]}],"results":[]}]}`, status: "completed"},
+		{name: "warning notification beside a result", result: runner.Result{}, data: `{"version":"2.1.0","runs":[{"invocations":[{"executionSuccessful":true,"toolExecutionNotifications":[` +
+			`{"level":"warning","message":{"text":"Syntax error at line bad.rb:2: SECRET_SOURCE_TEXT"}}]}],` +
+			`"results":[{"ruleId":"token","message":{"text":"leak"},"locations":[{"physicalLocation":{"artifactLocation":{"uri":"config"},"region":{"startLine":2}}}]}]}]}`,
+			status: "completed", findings: 1, hidden: "SECRET_SOURCE_TEXT"},
 		{name: "finding exit without evidence", result: runner.Result{ExitCode: 10}, data: `{"version":"2.1.0","runs":[{"results":[]}]}`, status: "failed"},
 	}
 	for _, tt := range cases {
@@ -58,6 +64,12 @@ func TestScanCoverage(t *testing.T) {
 			r := Scan(t.Context(), Options{Target: t.TempDir(), Kind: "repo", Checks: []string{"secrets"}, Timeout: time.Second}, executor)
 			if r.Checks[0].Status != tt.status || r.Complete != (tt.status == "completed") {
 				t.Fatalf("incorrect coverage: %+v", r)
+			}
+			if len(r.Checks[0].Findings) != tt.findings {
+				t.Fatalf("findings = %+v, want %d", r.Checks[0].Findings, tt.findings)
+			}
+			if tt.hidden != "" && strings.Contains(r.Checks[0].Reason, tt.hidden) {
+				t.Fatalf("reason quotes scanner notification text: %q", r.Checks[0].Reason)
 			}
 			if tt.name == "partial parse" && !strings.Contains(r.Checks[0].Reason, "partial") {
 				t.Fatalf("partial coverage not explained: %q", r.Checks[0].Reason)
@@ -142,7 +154,6 @@ func TestJoinReason(t *testing.T) {
 }
 
 func TestSourceRunsBesideComposedRulesForStableRuleIDs(t *testing.T) {
-	temp := t.TempDir()
 	custom := filepath.Join(t.TempDir(), "team", "my-rules.yml")
 	if err := os.MkdirAll(filepath.Dir(custom), 0o700); err != nil {
 		t.Fatal(err)
@@ -155,22 +166,38 @@ func TestSourceRunsBesideComposedRulesForStableRuleIDs(t *testing.T) {
 	if err := Validate(&options); err != nil {
 		t.Fatal(err)
 	}
-	p, err := buildPlan(options, "source", temp)
-	if err != nil {
-		t.Fatal(err)
+	var config []byte
+	executor := executorFunc(func(_ context.Context, i runner.Invocation) runner.Result {
+		n := slices.Index(i.Args, "--config")
+		if n < 0 {
+			return runner.Result{Stdout: []byte("opengrep 1.0.0")}
+		}
+		path := i.Args[n+1]
+		if !filepath.IsAbs(path) {
+			path = filepath.Join(i.Dir, path)
+		}
+		var err error
+		if config, err = os.ReadFile(path); err != nil {
+			t.Errorf("OpenGrep cannot read its config: %v", err)
+		}
+		if out := slices.Index(i.Args, "--output"); out >= 0 {
+			if err := os.WriteFile(i.Args[out+1], []byte(`{"version":"2.1.0","runs":[{"results":[]}]}`), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return runner.Result{}
+	})
+	check := Scan(t.Context(), options, executor).Checks[0]
+	if check.Status != "completed" {
+		t.Fatalf("source check did not complete: %+v", check)
 	}
-	if p.invocation.Dir != temp {
-		t.Fatalf("OpenGrep must run in the rules directory, got %q", p.invocation.Dir)
+	for _, id := range []string{"team-rule", "javascript-eval"} {
+		if !strings.Contains(string(config), "id: "+id) {
+			t.Fatalf("composed config lacks %s:\n%s", id, config)
+		}
 	}
-	if !slices.Contains(p.invocation.Args, "rules.yml") || slices.Contains(p.invocation.Args, "--strict") {
-		t.Fatalf("config must be passed by base name, without --strict: %v", p.invocation.Args)
-	}
-	config, err := os.ReadFile(filepath.Join(temp, "rules.yml"))
-	if err != nil || !strings.Contains(string(config), "id: team-rule") || !strings.Contains(string(config), "id: javascript-eval") {
-		t.Fatalf("composed config lacks the selected rules: %v\n%s", err, config)
-	}
-	if p.rules == nil || p.rules.SHA256 != report.Digest(config) || !slices.Equal(p.rules.Specs, []string{"starter", custom}) {
-		t.Fatalf("provenance does not describe the config: %+v", p.rules)
+	if check.Rules == nil || check.Rules.SHA256 != report.Digest(config) || !slices.Equal(check.Rules.Specs, []string{"starter", custom}) {
+		t.Fatalf("provenance does not describe the config: %+v", check.Rules)
 	}
 }
 
@@ -202,24 +229,15 @@ func TestSourceCheckWithRulePacks(t *testing.T) {
 		}
 		return runner.Result{}
 	})
+	installFakePack(t, home, pack, map[string]string{
+		"python/eval.yaml":     "rules:\n  - id: eval\n    languages: [python]\n    severity: ERROR\n    message: eval\n    pattern: eval(...)\n",
+		"configs/default.list": "python/eval.yaml:eval\npython/gone.yaml:gone\n",
+	})
 	options := Options{Kind: "repo", Target: t.TempDir(), Checks: []string{"source"}, Timeout: time.Second, Rules: []rules.Spec{{Kind: rules.PackSpec, Name: pack}}}
 	if err := Validate(&options); err != nil {
 		t.Fatal(err)
 	}
 	check := Scan(t.Context(), options, executor).Checks[0]
-	if check.Status != "skipped" || !strings.Contains(check.Reason, "run: pug rules install fixture") {
-		t.Fatalf("missing pack did not skip the check: %+v", check)
-	}
-
-	installFakePack(t, home, pack, map[string]string{
-		"python/eval.yaml":     "rules:\n  - id: eval\n    languages: [python]\n    severity: ERROR\n    message: eval\n    pattern: eval(...)\n",
-		"configs/default.list": "python/eval.yaml:eval\npython/gone.yaml:gone\n",
-	})
-	options = Options{Kind: "repo", Target: options.Target, Checks: []string{"source"}, Timeout: time.Second, Rules: []rules.Spec{{Kind: rules.PackSpec, Name: pack}}}
-	if err := Validate(&options); err != nil {
-		t.Fatal(err)
-	}
-	check = Scan(t.Context(), options, executor).Checks[0]
 	if check.Status != "completed" || len(check.Findings) != 1 || check.Findings[0].Severity != "high" {
 		t.Fatalf("pack scan did not complete with its finding: %+v", check)
 	}

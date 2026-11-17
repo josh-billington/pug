@@ -16,7 +16,6 @@ func TestDownloadVerifiesPinnedDigestAndHTTPStatus(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/missing" {
 			w.WriteHeader(http.StatusNotFound)
-			return
 		}
 		w.Write(body)
 	}))

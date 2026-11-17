@@ -1,14 +1,16 @@
 package rules
 
 import (
-	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 	"testing/fstest"
+
+	"go.yaml.in/yaml/v3"
 )
 
 func ruleFile(ids ...string) *fstest.MapFile {
@@ -32,15 +34,27 @@ func testPack() (string, fstest.MapFS) {
 	return pack, files
 }
 
-func ids(t *testing.T, r Ruleset) []string {
+type composedConfig struct {
+	Rules []struct {
+		ID      string `yaml:"id"`
+		Pattern string `yaml:"pattern"`
+	} `yaml:"rules"`
+}
+
+func composed(t *testing.T, r Ruleset) composedConfig {
 	t.Helper()
-	rules, err := parseRules(r.Config)
-	if err != nil {
+	var config composedConfig
+	if err := yaml.Unmarshal(r.Config, &config); err != nil {
 		t.Fatalf("composed config does not parse: %v\n%s", err, r.Config)
 	}
-	var got []string
-	for _, rule := range rules {
-		got = append(got, rule.id)
+	return config
+}
+
+func ids(t *testing.T, r Ruleset) []string {
+	t.Helper()
+	got := []string{}
+	for _, rule := range composed(t, r).Rules {
+		got = append(got, rule.ID)
 	}
 	return got
 }
@@ -198,22 +212,20 @@ func TestComposeKeepsEachFilesAliasesSelfContained(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rules, err := parseRules(r.Config)
-	if err != nil {
-		t.Fatalf("composed config does not parse: %v\n%s", err, r.Config)
-	}
 	want := map[string]string{"a-eval": "eval(...)", "z-eval": "eval(...)", "b-exec": "exec(...)", "y-exec": "exec(...)"}
-	for _, rule := range rules {
-		if got := mappingValue(rule.node, "pattern").Value; got != want[rule.id] {
-			t.Errorf("%s pattern = %q, want %q", rule.id, got, want[rule.id])
-		}
+	got := map[string]string{}
+	for _, rule := range composed(t, r).Rules {
+		got[rule.ID] = rule.Pattern
+	}
+	if !maps.Equal(got, want) {
+		t.Errorf("patterns = %v, want %v", got, want)
 	}
 	if strings.ContainsAny(string(r.Config), "&*") {
 		t.Fatalf("composed config still has anchors or aliases:\n%s", r.Config)
 	}
 }
 
-func TestParseRulesBoundsAliasExpansion(t *testing.T) {
+func TestComposeBoundsAliasExpansion(t *testing.T) {
 	t.Parallel()
 	var b strings.Builder
 	b.WriteString("a0: &a0 [x, x, x, x, x, x, x, x, x, x]\n")
@@ -221,19 +233,28 @@ func TestParseRulesBoundsAliasExpansion(t *testing.T) {
 		fmt.Fprintf(&b, "a%d: &a%d [*a%d, *a%d, *a%d, *a%d, *a%d, *a%d, *a%d, *a%d, *a%d, *a%d]\n", i, i, i-1, i-1, i-1, i-1, i-1, i-1, i-1, i-1, i-1, i-1)
 	}
 	b.WriteString("rules: [*a8]\n")
-	if _, err := parseRules([]byte(b.String())); err == nil || !strings.Contains(err.Error(), "expand beyond") {
-		t.Fatalf("error = %v, want alias expansion limit", err)
+	files := fstest.MapFS{"bomb.yml": {Data: []byte(b.String())}}
+	if _, err := Compose([]Source{{Spec: Spec{Kind: PathSpec, Path: "/bomb.yml"}, Files: files, File: "bomb.yml"}}); err == nil {
+		t.Fatal("alias bomb composed")
 	}
 }
 
-func TestParseRulesRejectsRulesInLaterDocuments(t *testing.T) {
+func TestComposeRejectsRulesInLaterDocuments(t *testing.T) {
 	t.Parallel()
-	data := string(ruleFile("first").Data) + "---\n" + string(ruleFile("second").Data)
-	if _, err := parseRules([]byte(data)); err == nil || errors.Is(err, errNotRules) {
-		t.Fatalf("error = %v, want a hard error for a second document", err)
+	multi := fstest.MapFS{"multi.yml": {Data: []byte(string(ruleFile("first").Data) + "---\n" + string(ruleFile("second").Data))}}
+	if _, err := Compose([]Source{{Spec: Spec{Kind: PathSpec, Path: "/multi.yml"}, Files: multi, File: "multi.yml"}}); err == nil {
+		t.Fatal("rules file with a second document composed")
 	}
-	if _, err := parseRules([]byte("kind: Pod\n---\nkind: Service\n")); !errors.Is(err, errNotRules) {
-		t.Fatalf("error = %v, want multi-document non-rule YAML skipped", err)
+	pack := fstest.MapFS{
+		"good.yml": ruleFile("good"),
+		"k8s.yml":  {Data: []byte("kind: Pod\n---\nkind: Service\n")},
+	}
+	r, err := Compose([]Source{packSource("team", pack, "")})
+	if err != nil {
+		t.Fatalf("multi-document non-rule YAML was not skipped: %v", err)
+	}
+	if got := ids(t, r); !slices.Equal(got, []string{"team.good"}) {
+		t.Fatalf("ids = %v, want [team.good]", got)
 	}
 }
 
@@ -335,9 +356,6 @@ func TestResolveLocalDirectoryAndProfile(t *testing.T) {
 	}
 	if !slices.Equal(ids(t, r), []string{"mypack.eval"}) || !slices.Equal(r.Provenance.Specs, []string{dir + ":audit"}) || r.Provenance.Packs != nil {
 		t.Fatalf("directory pack: %+v", r.Provenance)
-	}
-	if got, err := Profiles(dir); err != nil || !slices.Equal(got, []string{"audit"}) {
-		t.Fatalf("profiles = %v, %v", got, err)
 	}
 }
 

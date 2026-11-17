@@ -5,8 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -99,15 +101,26 @@ func TestRulesListAndUninstalledPackScan(t *testing.T) {
 		Commit    string   `json:"commit"`
 		URL       string   `json:"url"`
 		Installed bool     `json:"installed"`
+		Path      string   `json:"path"`
 		Profiles  []string `json:"profiles"`
 	}
-	if err := json.Unmarshal(stdout.Bytes(), &packs); err != nil || len(packs) != 3 {
+	if err := json.Unmarshal(stdout.Bytes(), &packs); err != nil {
 		t.Fatalf("rules list output: %s, %v", stdout.String(), err)
 	}
+	wantURLs := map[string]string{
+		"aikido":   "https://github.com/AikidoSec/opengrep-rules.git",
+		"amplify":  "https://github.com/amplify-security/opengrep-rules.git",
+		"opengrep": "https://github.com/opengrep/opengrep-rules.git",
+	}
+	gotURLs := map[string]string{}
 	for _, p := range packs {
-		if p.Installed || p.Commit != "" || p.URL == "" || p.Profiles == nil {
+		gotURLs[p.Name] = p.URL
+		if p.Installed || p.Commit != "" || p.Path != filepath.Join(home, "rules", p.Name) || p.Profiles == nil || len(p.Profiles) != 0 {
 			t.Fatalf("unexpected pack status: %+v", p)
 		}
+	}
+	if len(packs) != len(wantURLs) || !maps.Equal(gotURLs, wantURLs) {
+		t.Fatalf("aliases = %v, want %v", gotURLs, wantURLs)
 	}
 	stdout.Reset()
 	code := Execute(t.Context(), []string{"scan", t.TempDir(), "--checks", "source", "--rules", "notinstalled", "--fail-on", "none"}, &stdout, &stderr, "test")
@@ -160,16 +173,30 @@ func TestRulesListDiscoversLocalPacks(t *testing.T) {
 	if code := Execute(t.Context(), []string{"rules", "list"}, &stdout, &stderr, "test"); code != 0 {
 		t.Fatalf("list: %d %s", code, stderr.String())
 	}
-	var statuses []packStatus
+	var statuses []map[string]any
 	if err := json.Unmarshal(stdout.Bytes(), &statuses); err != nil {
 		t.Fatal(err)
 	}
-	if len(statuses) != 4 {
-		t.Fatalf("list included workspaces: %s", stdout.String())
+	var names []string
+	for _, status := range statuses {
+		name, _ := status["name"].(string)
+		names = append(names, name)
+	}
+	if !slices.Equal(names, []string{"aikido", "amplify", "opengrep", "team"}) {
+		t.Fatalf("listed packs = %v, want aliases plus team without workspaces", names)
 	}
 	team := statuses[3]
-	if team.Name != "team" || !team.Installed || team.Commit != "" || len(team.Profiles) != 1 || team.Profiles[0] != "audit" {
-		t.Fatalf("local pack status: %+v", team)
+	if team["installed"] != true || team["path"] != filepath.Join(home, "rules", "team") {
+		t.Fatalf("local pack status: %v", team)
+	}
+	if commit, _ := team["commit"].(string); commit != "" {
+		t.Fatalf("non-git pack reports a commit: %v", team)
+	}
+	if url, _ := team["url"].(string); url != "" {
+		t.Fatalf("local pack reports a URL: %v", team)
+	}
+	if profiles, ok := team["profiles"].([]any); !ok || len(profiles) != 1 || profiles[0] != "audit" {
+		t.Fatalf("local pack profiles: %v", team["profiles"])
 	}
 }
 

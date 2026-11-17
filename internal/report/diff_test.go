@@ -45,7 +45,9 @@ func TestDiffDoesNotTreatRuleChangesAsFixes(t *testing.T) {
 	}{
 		{name: "same rules", before: audit, after: &RuleProvenance{Specs: []string{"amplify:security-audit"}, SHA256: "aaa"}, absent: 1},
 		{name: "different rules", before: audit, after: &RuleProvenance{Specs: []string{"amplify:secrets"}, SHA256: "bbb"}, unverified: 1},
+		{name: "same specs with different rules", before: audit, after: &RuleProvenance{Specs: []string{"amplify:security-audit"}, SHA256: "bbb"}, unverified: 1},
 		{name: "report without provenance", before: nil, after: audit, unverified: 1},
+		{name: "later report without provenance", before: audit, after: nil, unverified: 1},
 		{name: "neither has provenance", before: nil, after: nil, absent: 1},
 	}
 	for _, tt := range cases {
