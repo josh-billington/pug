@@ -180,7 +180,7 @@ Reports use the schema in [`internal/report/report.go`](../internal/report/repor
 | `not_tested` | Requested checks that did not complete and categories that were not requested. |
 | `limitations` | Limits that affect the interpretation of the results. |
 
-Check statuses are `completed`, `failed`, `unavailable`, or `skipped`. Successful report parsing records `evidence_sha256`, a SHA-256 hash of the scanner report. The sandbox hashes command stdout instead. Neither hash authenticates its source.
+Check statuses are `completed`, `failed`, `unavailable`, or `skipped`. A `source` check completes when OpenGrep could only partly parse some target files, such as templates or files with syntax errors. Its reason counts the warnings. An invalid rule fails the check. Successful report parsing records `evidence_sha256`, a SHA-256 hash of the scanner report. The sandbox hashes command stdout instead. Neither hash authenticates its source.
 
 Pug deletes temporary scanner reports after each check. Recorded commands can contain paths to those deleted reports. Saved reports use atomic replacement and mode `0600` on POSIX filesystems. Imported reports have a 32 MiB limit and validated finding fingerprints.
 

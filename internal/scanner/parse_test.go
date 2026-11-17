@@ -1,6 +1,7 @@
 package scanner
 
 import (
+	"errors"
 	"strings"
 	"testing"
 )
@@ -19,6 +20,50 @@ func TestSARIFEvidence(t *testing.T) {
 	secret, err := parseSARIF(data, "gitleaks")
 	if err != nil || strings.Contains(secret[0].Message, "bad package") || secret[0].Severity != "high" {
 		t.Fatalf("secret message was not withheld: %+v, %v", secret, err)
+	}
+}
+
+func TestSARIFSeverityFallsBackToRuleDefaultLevel(t *testing.T) {
+	t.Parallel()
+	// OpenGrep's shape: results have no level, rules carry defaultConfiguration.level.
+	data := []byte(`{"version":"2.1.0","runs":[{"tool":{"driver":{"rules":[
+		{"id":"go-md5","defaultConfiguration":{"level":"warning"}},
+		{"id":"ruby-eval","defaultConfiguration":{"level":"error"}},
+		{"id":"info-rule","defaultConfiguration":{"level":"note"}},
+		{"id":"overridden","defaultConfiguration":{"level":"error"}}]}},
+		"results":[
+		{"ruleId":"go-md5","message":{"text":"md5"}},
+		{"ruleId":"ruby-eval","message":{"text":"eval"}},
+		{"ruleId":"info-rule","message":{"text":"info"}},
+		{"ruleId":"overridden","level":"note","message":{"text":"result level wins"}},
+		{"ruleId":"undeclared","message":{"text":"no rule metadata"}}]}]}`)
+	findings, err := parseSARIF(data, "opengrep")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{"go-md5": "medium", "ruby-eval": "high", "info-rule": "low", "overridden": "low", "undeclared": "medium"}
+	for _, finding := range findings {
+		if finding.Severity != want[finding.Rule] {
+			t.Errorf("%s severity = %s, want %s", finding.Rule, finding.Severity, want[finding.Rule])
+		}
+	}
+	if len(findings) != len(want) {
+		t.Fatalf("got %d findings, want %d", len(findings), len(want))
+	}
+}
+
+func TestSARIFWarningsMeanPartialCoverage(t *testing.T) {
+	t.Parallel()
+	data := []byte(`{"version":"2.1.0","runs":[{"invocations":[{"executionSuccessful":true,"toolExecutionNotifications":[
+		{"level":"warning","message":{"text":"Syntax error at line bad.rb:2: SECRET_SOURCE_TEXT"}}]}],
+		"results":[{"ruleId":"ruby-eval","message":{"text":"eval"}}]}]}`)
+	findings, err := parseSARIF(data, "opengrep")
+	var partial partialCoverage
+	if !errors.As(err, &partial) || len(findings) != 1 {
+		t.Fatalf("findings = %+v, error = %v", findings, err)
+	}
+	if strings.Contains(partial.Error(), "SECRET_SOURCE_TEXT") {
+		t.Fatalf("reason quotes notification text: %q", partial.Error())
 	}
 }
 

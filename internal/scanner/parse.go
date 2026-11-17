@@ -20,8 +20,11 @@ type sarifDocument struct {
 		Tool struct {
 			Driver struct {
 				Rules []struct {
-					ID         string         `json:"id"`
-					Properties map[string]any `json:"properties"`
+					ID                   string         `json:"id"`
+					Properties           map[string]any `json:"properties"`
+					DefaultConfiguration struct {
+						Level string `json:"level"`
+					} `json:"defaultConfiguration"`
 				} `json:"rules"`
 			} `json:"driver"`
 		} `json:"tool"`
@@ -60,19 +63,26 @@ func parseSARIF(data []byte, tool string) ([]report.Finding, error) {
 		return nil, fmt.Errorf("expected SARIF 2.1.0 with at least one run")
 	}
 	findings := []report.Finding{}
+	warnings := 0
 	for _, run := range doc.Runs {
 		for _, invocation := range run.Invocations {
 			if invocation.ExecutionSuccessful != nil && !*invocation.ExecutionSuccessful {
 				return findings, fmt.Errorf("SARIF reports an unsuccessful scanner invocation")
 			}
 			for _, notification := range invocation.Notifications {
-				if notification.Level == "error" {
+				switch notification.Level {
+				case "error":
 					return findings, fmt.Errorf("SARIF reports a scanner execution error")
+				case "warning":
+					warnings++
 				}
 			}
 		}
 		severities := map[string]string{}
+		// OpenGrep results carry no level; the rule's default level holds its severity.
+		levels := map[string]string{}
 		for _, rule := range run.Tool.Driver.Rules {
+			levels[rule.ID] = rule.DefaultConfiguration.Level
 			value, ok := rule.Properties["security-severity"]
 			if ok {
 				score, err := strconv.ParseFloat(fmt.Sprint(value), 64)
@@ -98,7 +108,11 @@ func parseSARIF(data []byte, tool string) ([]report.Finding, error) {
 			}
 			severity := severities[result.RuleID]
 			if severity == "" {
-				severity = map[string]string{"error": "high", "warning": "medium", "note": "low", "none": "info"}[result.Level]
+				level := result.Level
+				if level == "" {
+					level = levels[result.RuleID]
+				}
+				severity = map[string]string{"error": "high", "warning": "medium", "note": "low", "none": "info"}[level]
 				if severity == "" {
 					severity = "medium"
 				}
@@ -119,6 +133,10 @@ func parseSARIF(data []byte, tool string) ([]report.Finding, error) {
 			}
 			findings = append(findings, finding)
 		}
+	}
+	if warnings > 0 {
+		// Notification text can quote target source, so only the count is reported.
+		return findings, partialCoverage(fmt.Sprintf("scanner reported %d warnings, such as target files it could only partly parse; coverage of those files is partial", warnings))
 	}
 	return findings, nil
 }

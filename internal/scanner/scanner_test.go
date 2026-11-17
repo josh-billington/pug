@@ -5,6 +5,8 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -29,6 +31,7 @@ func TestScanCoverage(t *testing.T) {
 		{name: "invalid report", result: runner.Result{}, data: `{}`, status: "failed"},
 		{name: "truncated output", result: runner.Result{Truncated: true}, status: "failed"},
 		{name: "clean scan", result: runner.Result{}, data: `{"version":"2.1.0","runs":[{"results":[]}]}`, status: "completed"},
+		{name: "partial parse", result: runner.Result{}, data: `{"version":"2.1.0","runs":[{"invocations":[{"toolExecutionNotifications":[{"level":"warning"}]}],"results":[]}]}`, status: "completed"},
 		{name: "finding exit without evidence", result: runner.Result{ExitCode: 10}, data: `{"version":"2.1.0","runs":[{"results":[]}]}`, status: "failed"},
 	}
 	for _, tt := range cases {
@@ -53,6 +56,9 @@ func TestScanCoverage(t *testing.T) {
 			r := Scan(t.Context(), Options{Target: t.TempDir(), Kind: "repo", Checks: []string{"secrets"}, Timeout: time.Second}, executor)
 			if r.Checks[0].Status != tt.status || r.Complete != (tt.status == "completed") {
 				t.Fatalf("incorrect coverage: %+v", r)
+			}
+			if tt.name == "partial parse" && !strings.Contains(r.Checks[0].Reason, "partial") {
+				t.Fatalf("partial coverage not explained: %q", r.Checks[0].Reason)
 			}
 			if len(r.NotTested) < len(AllChecks)-1 {
 				t.Fatalf("missing coverage gaps: %+v", r.NotTested)
@@ -130,5 +136,27 @@ func TestJoinReason(t *testing.T) {
 	}
 	if got := joinReason("timed out", "cleanup failed"); got != "timed out; cleanup failed" {
 		t.Fatalf("joined reason = %q", got)
+	}
+}
+
+func TestSourceRunsBesideRulesForStableRuleIDs(t *testing.T) {
+	temp := t.TempDir()
+	p, err := buildPlan(Options{Kind: "repo", Target: "/abs/repo", Checks: []string{"source"}}, "source", temp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.invocation.Dir != temp {
+		t.Fatalf("OpenGrep must run in the rules directory, got %q", p.invocation.Dir)
+	}
+	if !slices.Contains(p.invocation.Args, "rules.yml") || slices.Contains(p.invocation.Args, filepath.Join(temp, "rules.yml")) {
+		t.Fatalf("config must be passed by base name: %v", p.invocation.Args)
+	}
+	custom := filepath.Join(t.TempDir(), "team", "my-rules.yml")
+	p, err = buildPlan(Options{Kind: "repo", Target: "/abs/repo", Rules: custom}, "source", temp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.invocation.Dir != filepath.Dir(custom) || !slices.Contains(p.invocation.Args, "my-rules.yml") {
+		t.Fatalf("custom rules must also run beside their file: dir=%q args=%v", p.invocation.Dir, p.invocation.Args)
 	}
 }

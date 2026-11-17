@@ -40,6 +40,12 @@ type notApplicable string
 
 func (n notApplicable) Error() string { return string(n) }
 
+// partialCoverage means the scanner finished and its findings are valid, but
+// it could not fully inspect some targets. The check completes with a reason.
+type partialCoverage string
+
+func (p partialCoverage) Error() string { return string(p) }
+
 func ValidImage(image string) bool { return digestImage.MatchString(image) }
 
 type Options struct {
@@ -204,7 +210,10 @@ func buildPlan(options Options, name, temp string) (plan, error) {
 				return p, fmt.Errorf("write bundled rules: %w", err)
 			}
 		}
-		p.invocation.Args = []string{"scan", "--config", config, "--sarif", "--output", artifact, "--disable-version-check", "--strict", options.Target}
+		// OpenGrep prefixes rule IDs with the config's directory relative to the working
+		// directory; running beside the config keeps IDs, and so fingerprints, stable.
+		p.invocation.Dir = filepath.Dir(config)
+		p.invocation.Args = []string{"scan", "--config", filepath.Base(config), "--sarif", "--output", artifact, "--disable-version-check", options.Target}
 	case "dependencies":
 		p.invocation.Args = []string{"fs", "--scanners", "vuln", "--format", "sarif", "--output", artifact, options.Target}
 	case "infra":
@@ -366,6 +375,10 @@ func runCheck(ctx context.Context, options Options, name string, executor runner
 		finding.Check = name
 		finding.Identify()
 		check.Findings = append(check.Findings, finding)
+	}
+	var partial partialCoverage
+	if errors.As(err, &partial) {
+		check.Reason, err = joinReason(check.Reason, partial.Error()), nil
 	}
 	if err != nil {
 		// Parser errors contain metadata only, never raw scanner output or secret values.
