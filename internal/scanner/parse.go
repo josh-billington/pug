@@ -63,14 +63,18 @@ func parseSARIF(data []byte, tool string) ([]report.Finding, error) {
 		return nil, fmt.Errorf("expected SARIF 2.1.0 with at least one run")
 	}
 	findings := []report.Finding{}
+	warnings := 0
 	for _, run := range doc.Runs {
 		for _, invocation := range run.Invocations {
 			if invocation.ExecutionSuccessful != nil && !*invocation.ExecutionSuccessful {
 				return findings, fmt.Errorf("SARIF reports an unsuccessful scanner invocation")
 			}
 			for _, notification := range invocation.Notifications {
-				if notification.Level == "error" {
+				switch notification.Level {
+				case "error":
 					return findings, fmt.Errorf("SARIF reports a scanner execution error")
+				case "warning":
+					warnings++
 				}
 			}
 		}
@@ -129,6 +133,10 @@ func parseSARIF(data []byte, tool string) ([]report.Finding, error) {
 			}
 			findings = append(findings, finding)
 		}
+	}
+	if warnings > 0 {
+		// Notification text can quote target source, so only the count is reported.
+		return findings, partialCoverage(fmt.Sprintf("scanner reported %d warnings, such as target files it could only partly parse; coverage of those files is partial", warnings))
 	}
 	return findings, nil
 }

@@ -89,6 +89,42 @@ func TestRealRepositoryScanners(t *testing.T) {
 	}
 }
 
+// TestRealOpenGrepParseProblems pins the evidence for running without
+// --strict: a target OpenGrep cannot fully parse leaves the check completed
+// with a reason, while an invalid rule still fails it.
+func TestRealOpenGrepParseProblems(t *testing.T) {
+	requireTool(t, "opengrep")
+	const evalRule = "  - id: ruby-eval\n    languages: [ruby]\n    severity: ERROR\n    message: eval\n    pattern: eval(...)\n"
+	cases := []struct {
+		name   string
+		rules  string
+		status string
+		reason string
+	}{
+		{name: "malformed target", rules: "rules:\n" + evalRule, status: "completed", reason: "partial"},
+		{name: "invalid rule", rules: "rules:\n" + evalRule + "  - id: broken\n    languages: [python]\n    severity: ERROR\n    message: bad\n    pattern: \"def (((\"\n", status: "failed"},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := t.TempDir()
+			fixtureFile(t, repo, "good.rb", "eval(params[:x])\n")
+			fixtureFile(t, repo, "bad.rb", "def broken(\n  eval(x\nclass << <<< end end end )))\n")
+			rules := fixtureFile(t, t.TempDir(), "rules.yml", tt.rules)
+			options := Options{Kind: "repo", Target: repo, Checks: []string{"source"}, Rules: rules, Timeout: 3 * time.Minute, Version: "integration"}
+			if err := Validate(&options); err != nil {
+				t.Fatal(err)
+			}
+			check := Scan(t.Context(), options, runner.Local{}).Checks[0]
+			if check.Status != tt.status || !strings.Contains(check.Reason, tt.reason) {
+				t.Fatalf("status=%s reason=%q", check.Status, check.Reason)
+			}
+			if tt.status == "completed" && (len(check.Findings) != 1 || check.Findings[0].Severity != "high") {
+				t.Fatalf("finding in the parsable file lost or misrated: %+v", check.Findings)
+			}
+		})
+	}
+}
+
 func TestRealApplicationScanners(t *testing.T) {
 	for _, name := range []string{"api", "exposure"} {
 		t.Run(name, func(t *testing.T) {
