@@ -5,6 +5,8 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -130,5 +132,27 @@ func TestJoinReason(t *testing.T) {
 	}
 	if got := joinReason("timed out", "cleanup failed"); got != "timed out; cleanup failed" {
 		t.Fatalf("joined reason = %q", got)
+	}
+}
+
+func TestSourceRunsBesideRulesForStableRuleIDs(t *testing.T) {
+	temp := t.TempDir()
+	p, err := buildPlan(Options{Kind: "repo", Target: "/abs/repo", Checks: []string{"source"}}, "source", temp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.invocation.Dir != temp {
+		t.Fatalf("OpenGrep must run in the rules directory, got %q", p.invocation.Dir)
+	}
+	if !slices.Contains(p.invocation.Args, "rules.yml") || slices.Contains(p.invocation.Args, filepath.Join(temp, "rules.yml")) {
+		t.Fatalf("config must be passed by base name: %v", p.invocation.Args)
+	}
+	custom := filepath.Join(t.TempDir(), "team", "my-rules.yml")
+	p, err = buildPlan(Options{Kind: "repo", Target: "/abs/repo", Rules: custom}, "source", temp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.invocation.Dir != filepath.Dir(custom) || !slices.Contains(p.invocation.Args, "my-rules.yml") {
+		t.Fatalf("custom rules must also run beside their file: dir=%q args=%v", p.invocation.Dir, p.invocation.Args)
 	}
 }
