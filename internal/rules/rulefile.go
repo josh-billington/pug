@@ -26,7 +26,15 @@ func parseRules(data []byte) ([]rule, error) {
 	if doc.Kind != yaml.DocumentNode || len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
 		return nil, fmt.Errorf("%w: top level is not a mapping", errNotRules)
 	}
-	sequence := mappingValue(doc.Content[0], "rules")
+	// Composition reorders rules from many files into one document, where an
+	// alias could bind to another file's anchor; expanding them keeps each
+	// rule's meaning self-contained.
+	budget := maxExpandedNodes
+	expanded, err := expandAliases(doc.Content[0], &budget)
+	if err != nil {
+		return nil, err
+	}
+	sequence := mappingValue(expanded, "rules")
 	if sequence == nil || sequence.Kind != yaml.SequenceNode {
 		return nil, fmt.Errorf("%w: no top-level rules list", errNotRules)
 	}
@@ -44,6 +52,33 @@ func parseRules(data []byte) ([]rule, error) {
 		rules = append(rules, rule{id: id.Value, node: node})
 	}
 	return rules, nil
+}
+
+const maxExpandedNodes = 1 << 20
+
+// expandAliases returns a copy of node with every alias replaced by a copy of
+// its target and no anchors left. The budget bounds alias amplification.
+func expandAliases(node *yaml.Node, budget *int) (*yaml.Node, error) {
+	*budget--
+	if *budget < 0 {
+		return nil, fmt.Errorf("YAML aliases expand beyond %d nodes", maxExpandedNodes)
+	}
+	if node.Kind == yaml.AliasNode {
+		if node.Alias == nil {
+			return nil, fmt.Errorf("YAML alias %q has no anchor", node.Value)
+		}
+		return expandAliases(node.Alias, budget)
+	}
+	copied := *node
+	copied.Anchor = ""
+	copied.Content = make([]*yaml.Node, len(node.Content))
+	for i, child := range node.Content {
+		var err error
+		if copied.Content[i], err = expandAliases(child, budget); err != nil {
+			return nil, err
+		}
+	}
+	return &copied, nil
 }
 
 func mappingValue(node *yaml.Node, key string) *yaml.Node {

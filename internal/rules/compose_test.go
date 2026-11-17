@@ -2,6 +2,7 @@ package rules
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -186,5 +187,49 @@ func TestResolveReportsMissingPacksOnce(t *testing.T) {
 	}
 	if !slices.Equal(missing, []string{"amp"}) || len(sources) != 2 || sources[0].Commit != installed.Commit {
 		t.Fatalf("missing = %v, sources = %+v", missing, sources)
+	}
+}
+
+func TestComposeKeepsEachFilesAliasesSelfContained(t *testing.T) {
+	t.Parallel()
+	rule := func(id, value string) string {
+		return "  - id: " + id + "\n    languages: [python]\n    severity: ERROR\n    message: " + id + "\n    pattern: " + value + "\n"
+	}
+	files := fstest.MapFS{
+		"first.yml":  {Data: []byte("rules:\n" + rule("z-eval", "&common eval(...)") + rule("a-eval", "*common"))},
+		"second.yml": {Data: []byte("rules:\n" + rule("b-exec", "&common exec(...)") + rule("y-exec", "*common"))},
+	}
+	r, err := Compose([]Source{
+		{Spec: Spec{Kind: FileSpec, Path: "/first.yml"}, Files: files, File: "first.yml"},
+		{Spec: Spec{Kind: FileSpec, Path: "/second.yml"}, Files: files, File: "second.yml"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rules, err := parseRules(r.Config)
+	if err != nil {
+		t.Fatalf("composed config does not parse: %v\n%s", err, r.Config)
+	}
+	want := map[string]string{"a-eval": "eval(...)", "z-eval": "eval(...)", "b-exec": "exec(...)", "y-exec": "exec(...)"}
+	for _, rule := range rules {
+		if got := mappingValue(rule.node, "pattern").Value; got != want[rule.id] {
+			t.Errorf("%s pattern = %q, want %q", rule.id, got, want[rule.id])
+		}
+	}
+	if strings.ContainsAny(string(r.Config), "&*") {
+		t.Fatalf("composed config still has anchors or aliases:\n%s", r.Config)
+	}
+}
+
+func TestParseRulesBoundsAliasExpansion(t *testing.T) {
+	t.Parallel()
+	var b strings.Builder
+	b.WriteString("a0: &a0 [x, x, x, x, x, x, x, x, x, x]\n")
+	for i := 1; i < 9; i++ {
+		fmt.Fprintf(&b, "a%d: &a%d [*a%d, *a%d, *a%d, *a%d, *a%d, *a%d, *a%d, *a%d, *a%d, *a%d]\n", i, i, i-1, i-1, i-1, i-1, i-1, i-1, i-1, i-1, i-1, i-1)
+	}
+	b.WriteString("rules: [*a8]\n")
+	if _, err := parseRules([]byte(b.String())); err == nil || !strings.Contains(err.Error(), "expand beyond") {
+		t.Fatalf("error = %v, want alias expansion limit", err)
 	}
 }
