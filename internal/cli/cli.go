@@ -67,7 +67,26 @@ func newRoot(version string) *cobra.Command {
 	root.AddCommand(setupCommand())
 	root.AddCommand(diffCommand())
 	root.AddCommand(sandboxCommand(version))
+	usageArgs(root)
 	return root
+}
+
+// usageArgs makes every positional-argument error a usage error (exit 2),
+// including cobra's own validators such as cobra.NoArgs.
+func usageArgs(cmd *cobra.Command) {
+	if validate := cmd.Args; validate != nil {
+		cmd.Args = func(c *cobra.Command, args []string) error {
+			err := validate(c, args)
+			var exit *exitError
+			if err == nil || errors.As(err, &exit) {
+				return err
+			}
+			return usageError("%v", err)
+		}
+	}
+	for _, child := range cmd.Commands() {
+		usageArgs(child)
+	}
 }
 
 func scanCommand(name, kind, version string) *cobra.Command {

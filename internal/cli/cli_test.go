@@ -28,6 +28,8 @@ func TestUsageErrors(t *testing.T) {
 		{name: "invalid timeout", args: []string{"scan", ".", "--timeout", "-1s"}},
 		{name: "invalid threshold", args: []string{"scan", ".", "--fail-on", "anything"}},
 		{name: "sandbox separator", args: []string{"sandbox", "echo"}},
+		{name: "doctor with arguments", args: []string{"doctor", "extra"}},
+		{name: "diff with one report", args: []string{"diff", "before.json"}},
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
