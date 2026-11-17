@@ -42,6 +42,19 @@ type Check struct {
 	Findings       []Finding `json:"findings"`
 }
 
+// RuleProvenance identifies the rules a check ran. Two reports whose
+// provenance differs ran different rules, so a missing finding proves nothing.
+type RuleProvenance struct {
+	Specs []string `json:"specs"`
+	// Packs maps each rule pack used to its installed commit.
+	Packs map[string]string `json:"packs,omitempty"`
+	Rules int               `json:"rules"`
+	// Unresolved lists profile entries that name no installed rule.
+	Unresolved []string `json:"unresolved,omitempty"`
+	// SHA256 is the digest of the composed rules config.
+	SHA256 string `json:"sha256"`
+}
+
 type CoverageGap struct {
 	Check  string `json:"check"`
 	Reason string `json:"reason"`

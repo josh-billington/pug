@@ -1,0 +1,29 @@
+rules:
+  - id: javascript-eval
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: Dynamic eval can execute attacker-controlled JavaScript. Avoid evaluating input as code.
+    pattern: eval($INPUT)
+  - id: python-shell-execution
+    languages: [python]
+    severity: ERROR
+    message: Shell execution can interpret attacker-controlled metacharacters. Use an argument array with shell disabled.
+    pattern-either:
+      - pattern: subprocess.run(..., shell=True, ...)
+      - pattern: subprocess.call(..., shell=True, ...)
+      - pattern: subprocess.Popen(..., shell=True, ...)
+      - pattern: os.system(...)
+  - id: go-shell-execution
+    languages: [go]
+    severity: WARNING
+    message: Review shell execution for command injection. Pass arguments directly to the executable.
+    pattern-either:
+      - pattern: exec.Command("sh", "-c", ...)
+      - pattern: exec.Command("bash", "-c", ...)
+  - id: python-unsafe-pickle
+    languages: [python]
+    severity: ERROR
+    message: Pickle deserialization can execute code. Never deserialize untrusted pickle data.
+    pattern-either:
+      - pattern: pickle.loads(...)
+      - pattern: pickle.load(...)
