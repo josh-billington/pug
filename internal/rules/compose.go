@@ -161,21 +161,15 @@ func sameRule(a, b *yaml.Node) bool {
 func (c *composer) addPack(source Source, spec string) error {
 	pack := source.Spec.Pack
 	files := map[string][]rule{}
-	load := func(name string) ([]rule, error) {
-		if rules, ok := files[name]; ok {
-			return rules, nil
-		}
-		rules, err := readRules(source.Files, name)
-		if err != nil {
-			return nil, err
-		}
-		files[name] = rules
-		return rules, nil
-	}
 	addFile := func(name string, keep func(string) bool) (bool, error) {
-		rules, err := load(name)
-		if err != nil {
-			return false, err
+		rules, ok := files[name]
+		if !ok {
+			var err error
+			rules, err = readRules(source.Files, name)
+			if err != nil {
+				return false, err
+			}
+			files[name] = rules
 		}
 		found := false
 		for _, r := range rules {
@@ -227,7 +221,7 @@ func (c *composer) addPack(source Source, spec string) error {
 		if entry == "" || strings.HasPrefix(entry, "#") {
 			continue
 		}
-		resolved, err := c.addEntry(entry, addFile)
+		resolved, err := addEntry(entry, addFile)
 		if err != nil {
 			return fmt.Errorf("rules %s: %w", spec, err)
 		}
@@ -240,7 +234,7 @@ func (c *composer) addPack(source Source, spec string) error {
 
 // addEntry adds the rule a "path:id" profile entry names. Profiles list
 // some files with the other of .yaml and .yml, so both are tried.
-func (c *composer) addEntry(entry string, addFile func(string, func(string) bool) (bool, error)) (bool, error) {
+func addEntry(entry string, addFile func(string, func(string) bool) (bool, error)) (bool, error) {
 	i := strings.LastIndex(entry, ":")
 	if i <= 0 {
 		return false, nil
