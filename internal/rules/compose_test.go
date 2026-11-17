@@ -376,3 +376,65 @@ func TestComposeBoundsRulesFiles(t *testing.T) {
 		t.Fatalf("oversized rules accepted: %v", err)
 	}
 }
+
+func TestComposeDirectoryRejectsBrokenRulesFiles(t *testing.T) {
+	t.Parallel()
+	for name, broken := range map[string]string{
+		"rule without an id": string(ruleFile("eval").Data) + "  - languages: [python]\n    pattern: x\n",
+		"invalid rules YAML": "rules:\n  - id: [\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			dir := t.TempDir()
+			for file, data := range map[string]string{
+				"good.yaml":       string(ruleFile("exec").Data),
+				"broken.yaml":     broken,
+				"k8s/pod.yaml":    "kind: Pod\n",
+				"fixtures/x.yaml": "key: [\n",
+			} {
+				if err := os.MkdirAll(filepath.Dir(filepath.Join(dir, file)), 0o700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(dir, file), []byte(data), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			source := Source{Spec: Spec{Kind: PathSpec, Path: dir}, Name: "mypack", Directory: dir}
+			if _, err := Compose([]Source{source}); err == nil || !strings.Contains(err.Error(), "broken.yaml") {
+				t.Fatalf("error = %v, want the broken rules file named", err)
+			}
+			if err := os.Remove(filepath.Join(dir, "broken.yaml")); err != nil {
+				t.Fatal(err)
+			}
+			r, err := Compose([]Source{source})
+			if err != nil || !slices.Equal(ids(t, r), []string{"mypack.good.exec"}) {
+				t.Fatalf("non-rule YAML was not skipped: %v", err)
+			}
+		})
+	}
+}
+
+func TestComposeSkipsSymlinkedProfileDirectory(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	for file, data := range map[string]string{
+		"eval.yaml":            string(ruleFile("eval").Data),
+		"exec.yaml":            string(ruleFile("exec").Data),
+		".hidden/default.list": "eval.yaml:eval\n",
+	} {
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(dir, file)), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, file), []byte(data), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Symlink(".hidden", filepath.Join(dir, "configs")); err != nil {
+		t.Fatal(err)
+	}
+	source := Source{Spec: Spec{Kind: PathSpec, Path: dir}, Name: "mypack", Directory: dir}
+	r, err := Compose([]Source{source})
+	if err != nil || !slices.Equal(ids(t, r), []string{"mypack.eval", "mypack.exec"}) {
+		t.Fatalf("symlinked configs directory changed selection: %v %v", ids(t, r), err)
+	}
+}

@@ -45,8 +45,8 @@ func TestInstallReplacesOnlyAfterGitSucceeds(t *testing.T) {
 				if !slices.Contains(i.Env, "GIT_TERMINAL_PROMPT=0") {
 					t.Fatal("git can prompt")
 				}
-				switch i.Args[2] {
-				case "clone":
+				switch {
+				case slices.Contains(i.Args, "clone"):
 					if testCase.fail {
 						return runner.Result{ExitCode: 1, Err: errors.New("offline")}
 					}
@@ -57,7 +57,7 @@ func TestInstallReplacesOnlyAfterGitSucceeds(t *testing.T) {
 					if err := os.WriteFile(filepath.Join(tree, "new.yml"), []byte("new"), 0o600); err != nil {
 						t.Fatal(err)
 					}
-				case "rev-parse":
+				case slices.Contains(i.Args, "rev-parse"):
 					return runner.Result{Stdout: []byte(commit + "\n")}
 				default:
 					t.Fatalf("unexpected git command: %v", i.Args)
@@ -140,6 +140,32 @@ func TestInstallRemovesOnlyStaleWorkspaces(t *testing.T) {
 	for _, dir := range []string{fresh, other} {
 		if _, err := os.Stat(dir); err != nil {
 			t.Fatalf("removed %s: %v", dir, err)
+		}
+	}
+}
+
+func TestInstallGitCannotAskForCredentials(t *testing.T) {
+	t.Setenv("SSH_ASKPASS", "/bin/false")
+	t.Setenv("GIT_ASKPASS", "/bin/false")
+	var invocations []runner.Invocation
+	executor := executorFunc(func(_ context.Context, i runner.Invocation) runner.Result {
+		invocations = append(invocations, i)
+		return runner.Result{ExitCode: 128, Err: errors.New("authentication required")}
+	})
+	if _, err := Install(t.Context(), executor, t.TempDir(), InstallSpec{Name: "fixture", URL: "https://example.com/rules"}); err == nil {
+		t.Fatal("failed clone succeeded")
+	}
+	if len(invocations) == 0 {
+		t.Fatal("git was not run")
+	}
+	for _, i := range invocations {
+		for _, value := range i.Env {
+			if strings.HasPrefix(value, "SSH_ASKPASS=") || strings.HasPrefix(value, "GIT_ASKPASS=") {
+				t.Fatalf("git inherited %s", value)
+			}
+		}
+		if !slices.Contains(i.Args, "core.askPass=") {
+			t.Fatalf("git can use a configured askpass helper: %v", i.Args)
 		}
 	}
 }

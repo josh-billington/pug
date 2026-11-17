@@ -371,11 +371,18 @@ func readFile(files fs.FS, name string) ([]byte, error) {
 }
 
 func profileNames(files fs.FS) ([]string, error) {
+	profiles := []string{}
+	info, err := fs.Lstat(files, "configs")
+	if errors.Is(err, fs.ErrNotExist) || err == nil && !info.IsDir() {
+		return profiles, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read rule profiles: %w", err)
+	}
 	matches, err := fs.Glob(files, "configs/*.list")
 	if err != nil {
 		return nil, fmt.Errorf("read rule profiles: %w", err)
 	}
-	profiles := []string{}
 	for _, match := range matches {
 		info, err := fs.Lstat(files, match)
 		if err != nil {

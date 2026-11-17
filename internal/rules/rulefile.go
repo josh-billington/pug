@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"regexp"
 
 	"go.yaml.in/yaml/v3"
 )
@@ -20,6 +21,9 @@ func parseRules(data []byte) ([]rule, error) {
 	decoder := yaml.NewDecoder(bytes.NewReader(data))
 	var doc yaml.Node
 	if err := decoder.Decode(&doc); err != nil {
+		if rulesKey.Match(data) {
+			return nil, fmt.Errorf("invalid rules YAML: %v", err)
+		}
 		return nil, fmt.Errorf("%w: %v", errNotRules, err)
 	}
 	if doc.Kind != yaml.DocumentNode || len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
@@ -43,7 +47,7 @@ func parseRules(data []byte) ([]rule, error) {
 	for i, node := range sequence.Content {
 		id := mappingValue(node, "id")
 		if node.Kind != yaml.MappingNode || id == nil || id.Kind != yaml.ScalarNode || id.Value == "" {
-			return nil, fmt.Errorf("%w: rule %d has no id", errNotRules, i+1)
+			return nil, fmt.Errorf("rule %d has no id", i+1)
 		}
 		if seen[id.Value] {
 			return nil, fmt.Errorf("duplicate rule id %q", id.Value)
@@ -55,6 +59,8 @@ func parseRules(data []byte) ([]rule, error) {
 }
 
 const maxExpandedNodes = 1 << 20
+
+var rulesKey = regexp.MustCompile(`(?m)^rules:`)
 
 func expandAliases(node *yaml.Node, budget *int) (*yaml.Node, error) {
 	*budget--

@@ -12,7 +12,7 @@ Repository scans inspect the current working tree. They do not freeze the checko
 
 The bundled OpenGrep rules detect a small set of suspicious patterns and can produce false positives. Actionlint checks workflow syntax and metadata. Neither tool provides a complete security assessment.
 
-Rule packs add upstream OpenGrep rules that Pug does not review. They can miss issues or produce false positives. `pug rules install` uses Git to fetch the upstream repository, with prompts, hooks, and clone templates disabled. Each user fetches their own rules; Pug never ships Commons Clause packs. During composition, Pug confines reads to the pack directory, skips symlinks, hidden directories, and test fixtures, and limits each selected rule file to 16 MiB. Reports record the checkout commit and a SHA-256 of the composed rules. `pug diff` treats missing findings as unverified when those rules change. These records describe the rules used; Pug still trusts the upstream rules.
+Rule packs add upstream OpenGrep rules that Pug does not review. They can miss issues or produce false positives. `pug rules install` uses Git to fetch the upstream repository, with prompts, askpass helpers, hooks, and clone templates disabled. Each user fetches their own rules. Pug never ships Commons Clause packs. During composition, Pug confines reads to the pack directory, skips symlinks, hidden directories, and test fixtures, and limits each selected rule file to 16 MiB. Reports record the checkout commit and a SHA-256 of the composed rules. `pug diff` treats missing findings as unverified when those rules change. These records describe the rules used; Pug still trusts the upstream rules.
 
 ## Tool installation
 

@@ -81,12 +81,13 @@ func runGit(ctx context.Context, executor runner.Executor, dir string, args []st
 	defer cancel()
 	env := []string{}
 	for _, value := range os.Environ() {
-		if !strings.HasPrefix(value, "GIT_") {
+		if !strings.HasPrefix(value, "GIT_") && !strings.HasPrefix(value, "SSH_ASKPASS") {
 			env = append(env, value)
 		}
 	}
 	env = append(env, "GIT_TERMINAL_PROMPT=0", "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null", "GIT_ATTR_NOSYSTEM=1")
-	args = append([]string{"-c", "core.hooksPath=/dev/null"}, args...)
+	command := args[0]
+	args = append([]string{"-c", "core.hooksPath=/dev/null", "-c", "core.askPass="}, args...)
 	result := executor.Run(ctx, runner.Invocation{Program: "git", Args: args, Dir: dir, Env: env})
 	if errors.Is(result.Err, exec.ErrNotFound) {
 		return "", fmt.Errorf("git is required to install and inspect rule packs; run pug doctor")
@@ -95,7 +96,7 @@ func runGit(ctx context.Context, executor runner.Executor, dir string, args []st
 		return "", fmt.Errorf("git cancelled or timed out: %w", ctx.Err())
 	}
 	if result.Err != nil || result.ExitCode != 0 || result.Truncated {
-		return "", fmt.Errorf("git %s failed (exit %d): %s", args[2], result.ExitCode, strings.TrimSpace(string(result.Stderr)))
+		return "", fmt.Errorf("git %s failed (exit %d): %s", command, result.ExitCode, strings.TrimSpace(string(result.Stderr)))
 	}
 	return strings.TrimSpace(string(result.Stdout)), nil
 }

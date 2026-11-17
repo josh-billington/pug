@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -46,7 +47,7 @@ func rulesListCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			names := rules.Names()
+			names := slices.Collect(maps.Keys(rules.Aliases))
 			entries, err := os.ReadDir(filepath.Join(home, "rules"))
 			if err != nil && !errors.Is(err, fs.ErrNotExist) {
 				return fmt.Errorf("list rule packs: %w", err)

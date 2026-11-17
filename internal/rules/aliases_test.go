@@ -39,7 +39,7 @@ func TestParseInstallSpecRejects(t *testing.T) {
 	for _, value := range []string{
 		"", "-x", "--upload-pack=evil", "unknown", "amplify@", "amplify@-x", "amplify@HEAD", "amplify@abc", "amplify@abcdef123456", "amplify@aabb;echo",
 		"http://example.com/rules", "ssh://example.com/rules", "https://example.com/", "https://example.com/-rules",
-		"https://example.com/starter", "https://example.com/amplify", "https://example.com/aikido.git", "https://-example.com/rules",
+		"https://example.com/starter", "https://example.com/myrules.yaml.git", "https://example.com/myrules.yml", "https://example.com/amplify", "https://example.com/aikido.git", "https://-example.com/rules",
 		"https://user:pass@example.com/rules", "https://example.com/rules?q=1", "https://example.com/rules#branch", "file://host/tmp/rules",
 	} {
 		t.Run(value, func(t *testing.T) {

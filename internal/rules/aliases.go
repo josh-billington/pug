@@ -6,7 +6,6 @@ import (
 	"net/url"
 	"path"
 	"regexp"
-	"slices"
 	"strings"
 )
 
@@ -25,15 +24,6 @@ type InstallSpec struct {
 	Name   string
 	URL    string
 	Commit string
-}
-
-func Names() []string {
-	names := make([]string, 0, len(Aliases))
-	for name := range Aliases {
-		names = append(names, name)
-	}
-	slices.Sort(names)
-	return names
 }
 
 func ParseInstallSpec(value string) (InstallSpec, error) {
@@ -67,7 +57,7 @@ func ParseInstallSpec(value string) (InstallSpec, error) {
 		return InstallSpec{}, fmt.Errorf("rule repository must not contain credentials, a query, or a fragment")
 	}
 	name := strings.TrimSuffix(path.Base(strings.TrimRight(u.Path, "/")), ".git")
-	if !packName.MatchString(name) || name == starterName {
+	if !packName.MatchString(name) || name == starterName || strings.HasSuffix(name, ".yml") || strings.HasSuffix(name, ".yaml") {
 		return InstallSpec{}, fmt.Errorf("invalid rule pack name %q", name)
 	}
 	if _, reserved := Aliases[name]; reserved {
