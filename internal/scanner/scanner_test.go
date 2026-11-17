@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"go.yaml.in/yaml/v3"
+
 	"github.com/josh-billington/pug/internal/report"
 	"github.com/josh-billington/pug/internal/rules"
 	"github.com/josh-billington/pug/internal/runner"
@@ -243,5 +245,67 @@ func TestSourceCheckWithRulePacks(t *testing.T) {
 	}
 	if check.Rules == nil || check.Rules.Packs["fixture"] != "" || len(check.Rules.Unresolved) != 1 || !strings.Contains(check.Reason, "skipped 1 profile entries") {
 		t.Fatalf("provenance or unresolved entries not reported: %+v reason=%q", check.Rules, check.Reason)
+	}
+}
+
+func TestSourceRunsTheSelectedPackProfile(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("PUG_HOME", home)
+	rule := func(id string) string {
+		return "  - id: " + id + "\n    languages: [python]\n    severity: ERROR\n    message: " + id + "\n    pattern: " + id + "(...)\n"
+	}
+	installFakePack(t, home, "fixture", map[string]string{
+		"python/eval.yaml":     "rules:\n" + rule("eval") + rule("eval-in-loop"),
+		"python/exec.yaml":     "rules:\n" + rule("exec"),
+		"configs/default.list": "python/eval.yaml:eval\n",
+		"configs/audit.list":   "python/exec.yaml:exec\npython/eval.yaml:eval-in-loop\n",
+	})
+	specs, err := rules.ParseSpecs([]string{"fixture:audit"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	options := Options{Kind: "repo", Target: t.TempDir(), Checks: []string{"source"}, Timeout: time.Second, Rules: specs}
+	if err := Validate(&options); err != nil {
+		t.Fatal(err)
+	}
+	var config struct {
+		Rules []struct {
+			ID string `yaml:"id"`
+		} `yaml:"rules"`
+	}
+	executor := executorFunc(func(_ context.Context, i runner.Invocation) runner.Result {
+		n := slices.Index(i.Args, "--config")
+		if n < 0 {
+			return runner.Result{Stdout: []byte("opengrep 1.0.0")}
+		}
+		path := i.Args[n+1]
+		if !filepath.IsAbs(path) {
+			path = filepath.Join(i.Dir, path)
+		}
+		data, err := os.ReadFile(path)
+		if err == nil {
+			err = yaml.Unmarshal(data, &config)
+		}
+		if err != nil {
+			t.Errorf("read composed config: %v", err)
+		}
+		if out := slices.Index(i.Args, "--output"); out >= 0 {
+			if err := os.WriteFile(i.Args[out+1], []byte(`{"version":"2.1.0","runs":[{"results":[]}]}`), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return runner.Result{}
+	})
+	check := Scan(t.Context(), options, executor).Checks[0]
+	if check.Status != "completed" {
+		t.Fatalf("profile scan did not complete: %+v", check)
+	}
+	var got []string
+	for _, rule := range config.Rules {
+		got = append(got, rule.ID)
+	}
+	slices.Sort(got)
+	if want := []string{"fixture.python.eval.eval-in-loop", "fixture.python.exec"}; !slices.Equal(got, want) {
+		t.Fatalf("composed rules = %v, want the audit profile %v", got, want)
 	}
 }

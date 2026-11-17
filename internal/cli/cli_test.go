@@ -132,6 +132,20 @@ func TestRulesListAndUninstalledPackScan(t *testing.T) {
 	}
 }
 
+func TestScanRejectsProfileOnRulesFile(t *testing.T) {
+	t.Setenv("PATH", "")
+	t.Setenv("PUG_HOME", t.TempDir())
+	file := filepath.Join(t.TempDir(), "team.yml")
+	if err := os.WriteFile(file, []byte("rules:\n  - id: team-rule\n    languages: [python]\n    severity: ERROR\n    message: m\n    pattern: f()\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	code := Execute(t.Context(), []string{"scan", t.TempDir(), "--checks", "source", "--rules", file + ":audit"}, &stdout, &stderr, "test")
+	if code != 2 || stdout.Len() != 0 || stderr.Len() == 0 {
+		t.Fatalf("profile on a rules file: code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+}
+
 func TestSetupCheckProducesJSONWithoutWriting(t *testing.T) {
 	t.Setenv("PATH", "")
 	home := filepath.Join(t.TempDir(), "unused")

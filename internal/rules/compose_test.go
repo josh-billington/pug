@@ -456,3 +456,30 @@ func TestComposeSkipsSymlinkedProfileDirectory(t *testing.T) {
 		t.Fatalf("symlinked configs directory changed selection: %v %v", ids(t, r), err)
 	}
 }
+
+func TestComposeSkipsNonMappingYAMLInPacks(t *testing.T) {
+	t.Parallel()
+	pack := fstest.MapFS{
+		"good.yml":       ruleFile("good"),
+		"languages.yaml": {Data: []byte("- python\n- go\n")},
+	}
+	r, err := Compose([]Source{packSource("team", pack, "")})
+	if err != nil {
+		t.Fatalf("top-level list YAML was not skipped: %v", err)
+	}
+	if got := ids(t, r); !slices.Equal(got, []string{"team.good"}) {
+		t.Fatalf("ids = %v, want [team.good]", got)
+	}
+}
+
+func TestComposeRejectsDuplicateRuleIDsInAFile(t *testing.T) {
+	t.Parallel()
+	pack := fstest.MapFS{
+		"good.yml":       ruleFile("good"),
+		"python/dup.yml": ruleFile("dup", "dup"),
+	}
+	_, err := Compose([]Source{packSource("team", pack, "")})
+	if err == nil || !strings.Contains(err.Error(), "python/dup.yml") {
+		t.Fatalf("error = %v, want the file with duplicate IDs named", err)
+	}
+}
