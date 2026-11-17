@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"encoding/xml"
 	"fmt"
+	"net/netip"
 	"net/url"
 	"strconv"
 	"strings"
@@ -233,6 +234,55 @@ func parseTruffleHog(data []byte) ([]report.Finding, error) {
 		})
 	}
 	return findings, lines.Err()
+}
+
+// parseNaabu reports open ports outside expected. An expected port must answer, because a down
+// or filtered host produces the same empty output as a host with every port closed.
+func parseNaabu(data []byte, target string, expected map[int]bool) ([]report.Finding, error) {
+	findings := []report.Finding{}
+	seen, answered := map[int]bool{}, false
+	lines := bufio.NewScanner(bytes.NewReader(data))
+	lines.Buffer(make([]byte, 4096), 2<<20)
+	for lines.Scan() {
+		if len(bytes.TrimSpace(lines.Bytes())) == 0 {
+			continue
+		}
+		var item struct {
+			IP       string `json:"ip"`
+			Port     int    `json:"port"`
+			Protocol string `json:"protocol"`
+		}
+		if err := json.Unmarshal(lines.Bytes(), &item); err != nil {
+			return findings, fmt.Errorf("decode naabu JSONL: %w", err)
+		}
+		addr, err := netip.ParseAddr(item.IP)
+		if err != nil || addr.String() != target {
+			return findings, fmt.Errorf("naabu reported an address outside the target")
+		}
+		if item.Port < 1 || item.Port > 65535 || item.Protocol != "tcp" {
+			return findings, fmt.Errorf("naabu result has an invalid port or protocol")
+		}
+		if expected[item.Port] {
+			answered = true
+			continue
+		}
+		if seen[item.Port] {
+			continue
+		}
+		seen[item.Port] = true
+		findings = append(findings, report.Finding{
+			Tool: "naabu", Rule: "unexpected-open-port", Severity: "medium",
+			Message:  fmt.Sprintf("TCP port %d is open but not in --expect", item.Port),
+			Location: netip.AddrPortFrom(addr, uint16(item.Port)).String() + "/tcp",
+		})
+	}
+	if err := lines.Err(); err != nil {
+		return findings, err
+	}
+	if !answered {
+		return findings, fmt.Errorf("no expected port answered on %s; the host may be down or filtered, so closed ports cannot be confirmed", target)
+	}
+	return findings, nil
 }
 
 type junitSuite struct {

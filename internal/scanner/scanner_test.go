@@ -361,3 +361,97 @@ func TestSecretsHistoryNeedsRepositoryRoot(t *testing.T) {
 		t.Fatalf("non-repository target was not reported as untested: %+v", r)
 	}
 }
+
+func TestPortScanReportsOnlyUnexpectedPorts(t *testing.T) {
+	t.Parallel()
+	var scanEnv, versionEnv []string
+	stdout := `{"ip":"192.0.2.10","port":22,"protocol":"tcp"}` + "\n" +
+		`{"ip":"192.0.2.10","port":8080,"protocol":"tcp"}` + "\n" +
+		`{"ip":"192.0.2.10","port":8080,"protocol":"tcp"}` + "\n"
+	executor := executorFunc(func(_ context.Context, i runner.Invocation) runner.Result {
+		if len(i.Args) == 1 {
+			versionEnv = i.Env
+			return runner.Result{Stderr: []byte("  __\n[INF] Current Version: 2.7.0\n")}
+		}
+		scanEnv = i.Env
+		return runner.Result{Stdout: []byte(stdout)}
+	})
+	options := Options{Kind: "net", Target: "192.0.2.10", Checks: []string{"ports"}, Ports: "1-1024", Expect: []int{22}, Timeout: time.Second}
+	if err := Validate(&options); err != nil {
+		t.Fatal(err)
+	}
+	r := Scan(t.Context(), options, executor)
+	check := r.Checks[0]
+	if check.Status != "completed" || !r.Complete || check.Tool != "naabu" || check.Version != "[INF] Current Version: 2.7.0" {
+		t.Fatalf("unexpected check: %+v", check)
+	}
+	if len(check.Findings) != 1 || check.Findings[0].Location != "192.0.2.10:8080/tcp" || check.Findings[0].Severity != "medium" {
+		t.Fatalf("want one unexpected-port finding: %+v", check.Findings)
+	}
+	for _, flag := range []string{"-s", "-Pn", "-duc", "-no-stdin", "1-1024,22"} {
+		if !slices.Contains(check.Command, flag) {
+			t.Fatalf("command lacks %s: %v", flag, check.Command)
+		}
+	}
+	for _, env := range [][]string{versionEnv, scanEnv} {
+		for _, want := range []string{"HOME=" + os.TempDir(), "XDG_CONFIG_HOME=" + os.TempDir(), "DISABLE_CLOUD_UPLOAD=true"} {
+			if !slices.ContainsFunc(env, func(entry string) bool { return strings.HasPrefix(entry, want) }) {
+				t.Fatalf("naabu environment lacks %s: %v", want, env)
+			}
+		}
+	}
+}
+
+func TestPortScanWithoutExpectedPortIsIncomplete(t *testing.T) {
+	t.Parallel()
+	for _, tt := range []struct{ name, stdout, reason string }{
+		{name: "host down or filtered", stdout: "", reason: "no expected port"},
+		{name: "other address", stdout: `{"ip":"192.0.2.99","port":22,"protocol":"tcp"}` + "\n", reason: "outside the target"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			executor := executorFunc(func(_ context.Context, i runner.Invocation) runner.Result {
+				return runner.Result{Stdout: []byte(tt.stdout)}
+			})
+			r := Scan(t.Context(), Options{Kind: "net", Target: "192.0.2.10", Checks: []string{"ports"}, Ports: "1-1024", Expect: []int{22}, Timeout: time.Second}, executor)
+			if check := r.Checks[0]; check.Status != "failed" || r.Complete || !strings.Contains(check.Reason, tt.reason) {
+				t.Fatalf("silent scan was reported as clean: %+v", check)
+			}
+		})
+	}
+}
+
+func TestValidatePortScanTargets(t *testing.T) {
+	t.Parallel()
+	for _, tt := range []struct {
+		name, target, ports string
+		expect              []int
+	}{
+		{name: "hostname", target: "example.com", ports: "80", expect: []int{80}},
+		{name: "CIDR", target: "192.0.2.0/24", ports: "80", expect: []int{80}},
+		{name: "unspecified", target: "0.0.0.0", ports: "80", expect: []int{80}},
+		{name: "multicast", target: "224.0.0.1", ports: "80", expect: []int{80}},
+		{name: "IPv6 zone", target: "fe80::1%en0", ports: "80", expect: []int{80}},
+		{name: "mapped unspecified", target: "::ffff:0.0.0.0", ports: "80", expect: []int{80}},
+		{name: "no ports", target: "192.0.2.10", expect: []int{80}},
+		{name: "port too large", target: "192.0.2.10", ports: "1-65536", expect: []int{80}},
+		{name: "reversed range", target: "192.0.2.10", ports: "90-80", expect: []int{80}},
+		{name: "flag injection", target: "192.0.2.10", ports: "80,-passive", expect: []int{80}},
+		{name: "no expected port", target: "192.0.2.10", ports: "80"},
+		{name: "bad expected port", target: "192.0.2.10", ports: "80", expect: []int{0}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			options := Options{Kind: "net", Target: tt.target, Checks: []string{"ports"}, Ports: tt.ports, Expect: tt.expect, Timeout: time.Second}
+			if err := Validate(&options); err == nil {
+				t.Fatalf("unsafe port scan accepted: %+v", options)
+			}
+		})
+	}
+	for raw, want := range map[string]string{"2001:db8::0:1": "2001:db8::1", "::ffff:192.0.2.10": "192.0.2.10"} {
+		options := Options{Kind: "net", Target: raw, Checks: []string{"ports"}, Ports: "22,80-90", Expect: []int{22}, Timeout: time.Second}
+		if err := Validate(&options); err != nil || options.Target != want {
+			t.Fatalf("valid target %s rejected or not normalized: %q, %v", raw, options.Target, err)
+		}
+	}
+}

@@ -21,6 +21,7 @@ pug sandbox --help
 | `pug scan DIRECTORY` | Scans the current working tree with the selected repository checks. |
 | `pug image NAME@sha256:DIGEST` | Runs Trivy vulnerability and misconfiguration checks. Trivy can fetch the image and database. |
 | `pug app URL --allow-active` | Runs the selected application checks against the target. |
+| `pug net IP --ports SPEC --expect PORTS --allow-active` | Scans TCP ports on one IP address and reports open ports that are not expected. |
 | `pug diff BEFORE.json AFTER.json` | Compares findings for the same target. |
 | `pug rules list` | Lists installed packs and built-in aliases as JSON, with paths, commits, profiles, and install state. |
 | `pug rules install NAME\|URL[@COMMIT]...` | Clones or updates upstream rule repositories with Git. |
@@ -34,7 +35,7 @@ pug sandbox --help
 | Flag | Default | Behavior |
 | --- | --- | --- |
 | `--check` | `false` | Checks tools without downloads or installations. |
-| `--tools` | `gitleaks,actionlint,opengrep,trivy,nuclei,schemathesis` | Selects at least one native scanner. `trufflehog` installs only when named. Unknown or repeated names are invalid. |
+| `--tools` | `gitleaks,actionlint,opengrep,trivy,nuclei,schemathesis` | Selects at least one native scanner. `trufflehog` and `naabu` install only when named. Unknown or repeated names are invalid. |
 | `--with-zap` | `false` | Also checks the ZAP image and pulls it if missing. Requires a running Docker daemon. |
 | `--zap-image` | The tested image in [`internal/tools/tools.go`](../internal/tools/tools.go) | Selects the digest-pinned image for `--with-zap`. A custom image also needs `--zap-image` on `pug app`. |
 | `--timeout` | `10m` | Sets a deadline per selected tool installation. Valid values are greater than zero and at most `1h`. |
@@ -73,6 +74,7 @@ Automatic installation supports macOS and Linux with glibc, on amd64 and arm64. 
 | Actionlint | 1.7.12 | Upstream release binary |
 | OpenGrep | 1.33.1 | Upstream release binary |
 | Trivy | 0.76.2 | Upstream release binary |
+| naabu | 2.7.0 | Upstream release binary, only with `--tools naabu` |
 | Nuclei | 3.11.1 | Upstream release binary |
 | Schemathesis | 4.33.2 | uv tool environment with managed Python 3.12 |
 | uv | 0.9.9 | Upstream release binary, only if Schemathesis needs it and uv is missing |
@@ -106,6 +108,7 @@ pug setup --check --format json
 | `api` | Schemathesis | API contract checks and input fuzzing based on the supplied local schema. |
 | `exposure` | Nuclei | Supplied local HTTP templates. Redirects and Interactsh callbacks are disabled. |
 | `zap` | Docker and ZAP | Full scan using a preinstalled digest-pinned ZAP image. |
+| `ports` | naabu | TCP connect scan of `--ports` and `--expect` on one IP address. Open ports outside `--expect` are medium findings. If no expected port answers, the check fails, because a down or filtered host looks the same as a closed one. |
 
 Repository defaults are `source,secrets,dependencies,actions,infra`. Add `secrets-history` with `--checks` after `pug setup --tools trufflehog`. Application defaults are `api,exposure`. `pentest` appears in `not_tested` because Pug supplies no autonomous pentesting agent.
 
@@ -126,6 +129,12 @@ A pack can also be a local directory. Pug selects regular `.yml` and `.yaml` rul
 Pug qualifies pack rule IDs so they stay the same across profiles and do not collide. A pack rule ID is the pack name, the rule file's path with dots for slashes and without its extension, and the upstream ID when it differs from the file name. For example, rule `no-eval` in `team/python/no-eval.yaml` from pack `mypack` becomes `mypack.team.python.no-eval`. A directory path uses its base name as the pack name. Starter and local file rules keep their IDs. Pug combines all selected rules into one config for each scan. A rule that several values select runs once.
 
 Some profile entries name files that are absent from the checkout. Pug skips them and counts them in the check's reason. The report lists them in `rules.unresolved`.
+
+### Port scan limits
+
+`pug net` accepts one literal IPv4 or IPv6 address. Hostnames, ranges, and zoned addresses are invalid. `--ports` takes numbers and ranges from 1 to 65535, such as `22,80,8000-8100`. naabu also scans every `--expect` port. `--fail-on` defaults to `medium` for `pug net`, so an unexpected open port exits with code `1`.
+
+naabu runs a TCP connect scan at 500 packets per second with its default three retries, and with host discovery and update checks off. A scan of all 65535 ports, or of a host that drops packets, can exceed the default five-minute `--timeout`. A timed-out scan is incomplete. Pug never passes naabu's passive (Shodan), cloud upload, proxy, or nmap options. naabu runs with `HOME` and `XDG_CONFIG_HOME` set to a private temporary directory, including for version checks, and with `DISABLE_CLOUD_UPLOAD=true`. UDP and service identification are not tested.
 
 ### Application check limits
 

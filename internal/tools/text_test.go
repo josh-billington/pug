@@ -37,3 +37,13 @@ func TestVersionProbe(t *testing.T) {
 		t.Fatalf("stderr fallback = %q", got)
 	}
 }
+
+func TestVersionLineSkipsBanner(t *testing.T) {
+	t.Parallel()
+	if got := VersionLine(nil, []byte("  __\n / _ \\\n[INF] Current Version: 2.7.0\n")); got != "[INF] Current Version: 2.7.0" {
+		t.Fatalf("banner chosen as version: %q", got)
+	}
+	if got := VersionLine([]byte("8.30.1\n"), nil); got != "8.30.1" {
+		t.Fatalf("bare version lost: %q", got)
+	}
+}

@@ -64,6 +64,7 @@ func newRoot(version string) *cobra.Command {
 	root.AddCommand(scanCommand("scan", "repo", version))
 	root.AddCommand(scanCommand("image", "image", version))
 	root.AddCommand(scanCommand("app", "app", version))
+	root.AddCommand(scanCommand("net", "net", version))
 	root.AddCommand(doctorCommand())
 	root.AddCommand(setupCommand())
 	root.AddCommand(rulesCommand())
@@ -98,6 +99,7 @@ func scanCommand(name, kind, version string) *cobra.Command {
 		Use: name + " TARGET", Short: map[string]string{
 			"repo": "Scan a local working tree", "image": "Scan a digest-pinned container image",
 			"app": "Actively test an application you are authorized to test",
+			"net": "Scan TCP ports on one IP address you are authorized to test",
 		}[kind],
 		Args: func(_ *cobra.Command, args []string) error {
 			if len(args) != 1 {
@@ -122,6 +124,9 @@ func scanCommand(name, kind, version string) *cobra.Command {
 					return usageError("%v", err)
 				}
 				options.Rules = specs
+			}
+			if kind == "net" && !active {
+				return usageError("net scans open TCP connections; explicitly pass --allow-active for an address you are authorized to scan")
 			}
 			if err := scanner.Validate(&options); err != nil {
 				return usageError("%v", err)
@@ -150,7 +155,12 @@ func scanCommand(name, kind, version string) *cobra.Command {
 	flags := cmd.Flags()
 	flags.StringVar(&format, "format", "json", "Report format: json or text")
 	flags.StringVar(&output, "output", "", "Also atomically save the report to this file (mode 0600)")
-	flags.StringVar(&failOn, "fail-on", "high", "Minimum finding severity that fails the command, or none")
+	failOnDefault := "high"
+	if kind == "net" {
+		// Every net finding is a medium policy deviation; failing on it is the point of the scan.
+		failOnDefault = "medium"
+	}
+	flags.StringVar(&failOn, "fail-on", failOnDefault, "Minimum finding severity that fails the command, or none")
 	flags.DurationVar(&options.Timeout, "timeout", 5*time.Minute, "Timeout per scanner, including version lookup")
 	switch kind {
 	case "repo":
@@ -164,6 +174,11 @@ func scanCommand(name, kind, version string) *cobra.Command {
 		flags.StringVar(&options.Schema, "schema", "", "Reviewed local OpenAPI schema for Schemathesis")
 		flags.StringVar(&options.Templates, "templates", "", "Reviewed local HTTP Nuclei templates")
 		flags.StringVar(&options.ZAPImage, "zap-image", tools.ZAPImage, "Locally installed ZAP Docker image pinned by digest")
+	case "net":
+		options.Checks = []string{"ports"}
+		flags.BoolVar(&active, "allow-active", false, "Confirm authorization to scan this address")
+		flags.StringVar(&options.Ports, "ports", "", "TCP ports to scan, such as 1-1024 or 22,80,443")
+		flags.IntSliceVar(&options.Expect, "expect", nil, "TCP ports that should be open; at least one must answer")
 	}
 	return cmd
 }

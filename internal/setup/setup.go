@@ -22,7 +22,7 @@ import (
 var NativeTools = []string{"gitleaks", "actionlint", "opengrep", "trivy", "nuclei", "schemathesis"}
 
 // OptionalTools back opt-in checks and install only when named with --tools.
-var OptionalTools = []string{"trufflehog"}
+var OptionalTools = []string{"trufflehog", "naabu"}
 
 type Options struct {
 	CheckOnly bool
@@ -203,6 +203,9 @@ func nextStep(selected []string) string {
 		checks = append(checks, "exposure")
 		args += " --templates /path/to/reviewed-templates"
 	}
+	if len(checks) == 0 && available["naabu"] {
+		return "pug net 127.0.0.1 --ports 1-1024 --expect 22 --allow-active"
+	}
 	return "pug app http://127.0.0.1:8000 --allow-active --checks " + strings.Join(checks, ",") + args
 }
 
@@ -227,7 +230,12 @@ func (e engine) prerequisite(ctx context.Context, name string, args []string, hi
 func (e engine) version(ctx context.Context, name, binary string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
-	r := e.run(ctx, runner.Invocation{Program: binary, Args: tools.VersionArgs(name)})
+	dir, err := os.MkdirTemp("", "pug-version-*")
+	if err != nil {
+		return "", err
+	}
+	defer os.RemoveAll(dir)
+	r := e.run(ctx, runner.Invocation{Program: binary, Args: tools.VersionArgs(name), Env: tools.IsolatedEnv(name, dir)})
 	if r.Err != nil {
 		return "", fmt.Errorf("%s version check failed: %w", name, r.Err)
 	}

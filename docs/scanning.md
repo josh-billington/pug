@@ -100,6 +100,23 @@ These checks send active requests and can change application data. Use a disposa
 
 The report contains API findings from Schemathesis and template findings from Nuclei. See [Application check limits](commands.md#application-check-limits) for request limits and redirect behavior.
 
+## Scan ports on a host
+
+A port scan opens TCP connections to the address. Scan only addresses you are authorized to test.
+
+1. List the ports the host should expose, such as `22` and `443`.
+2. Scan the address. Replace the example values with yours.
+
+	```sh
+	pug net 192.0.2.10 \
+		--ports 1-1024 \
+		--expect 22,443 \
+		--allow-active \
+		--output pug-report-net.json
+	```
+
+Each open port outside `--expect` is a finding, and the command exits with code `1`. If none of the expected ports answers, the report is incomplete and the command exits with code `3`. The host may be down, or a firewall may drop the scan. See [Port scan limits](commands.md#port-scan-limits).
+
 ## Run ZAP
 
 ZAP crawls the target and sends active test requests. Use a disposable environment. The ZAP container needs an address that it can reach.

@@ -6,12 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/netip"
 	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -21,7 +23,7 @@ import (
 	"github.com/josh-billington/pug/internal/tools"
 )
 
-var AllChecks = []string{"source", "secrets", "secrets-history", "dependencies", "actions", "infra", "image", "api", "exposure", "zap", "pentest"}
+var AllChecks = []string{"source", "secrets", "secrets-history", "dependencies", "actions", "infra", "image", "api", "exposure", "zap", "ports", "pentest"}
 var RepositoryChecks = []string{"source", "secrets", "dependencies", "actions", "infra"}
 
 // OptionalRepositoryChecks run only when named with --checks.
@@ -30,7 +32,7 @@ var OptionalRepositoryChecks = []string{"secrets-history"}
 var Tools = map[string]string{
 	"source": "opengrep", "secrets": "gitleaks", "secrets-history": "trufflehog", "dependencies": "trivy",
 	"actions": "actionlint", "infra": "trivy", "image": "trivy",
-	"api": "schemathesis", "exposure": "nuclei", "zap": "docker",
+	"api": "schemathesis", "exposure": "nuclei", "zap": "docker", "ports": "naabu",
 }
 
 var digestImage = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._/:\-]*@sha256:[a-f0-9]{64}$`)
@@ -58,6 +60,8 @@ type Options struct {
 	Templates string
 	ZAPImage  string
 	Version   string
+	Ports     string
+	Expect    []int
 
 	ruleset      *rules.Ruleset
 	missingPacks []string
@@ -127,6 +131,25 @@ func Validate(options *Options) error {
 		if err := ValidateURL(options.Target); err != nil {
 			return err
 		}
+	case "net":
+		allowed["ports"] = true
+		addr, err := netip.ParseAddr(options.Target)
+		addr = addr.Unmap()
+		if err != nil || addr.Zone() != "" || addr.IsUnspecified() || addr.IsMulticast() {
+			return fmt.Errorf("net target must be one literal IP address; hostnames, ranges, and zones are not supported")
+		}
+		options.Target = addr.String()
+		if err := validatePorts(options.Ports); err != nil {
+			return err
+		}
+		if len(options.Expect) == 0 {
+			return fmt.Errorf("pass at least one --expect port, so an unreachable host is not reported as closed")
+		}
+		for _, port := range options.Expect {
+			if port < 1 || port > 65535 {
+				return fmt.Errorf("expected port %d is outside 1-65535", port)
+			}
+		}
 	default:
 		return fmt.Errorf("unknown target kind %q", options.Kind)
 	}
@@ -188,6 +211,24 @@ func Validate(options *Options) error {
 	return nil
 }
 
+func validatePorts(spec string) error {
+	if spec == "" {
+		return fmt.Errorf("--ports is required, for example 1-1024 or 22,80,443")
+	}
+	for _, part := range strings.Split(spec, ",") {
+		low, high, isRange := strings.Cut(part, "-")
+		if !isRange {
+			high = low
+		}
+		lo, errLo := strconv.Atoi(low)
+		hi, errHi := strconv.Atoi(high)
+		if strings.Trim(part, "0123456789-") != "" || errLo != nil || errHi != nil || lo < 1 || hi > 65535 || lo > hi {
+			return fmt.Errorf("invalid port range %q; use numbers from 1 to 65535", part)
+		}
+	}
+	return nil
+}
+
 func Scan(ctx context.Context, options Options, executor runner.Executor) report.Report {
 	r := report.Report{
 		SchemaVersion: "1", Version: options.Version, Target: options.Target, StartedAt: time.Now().UTC(),
@@ -210,6 +251,12 @@ func Scan(ctx context.Context, options Options, executor runner.Executor) report
 			"Application tests send active requests and can modify application data.",
 			"URL validation is not a network sandbox; use trusted schemas/templates and an isolated test environment.",
 			"Authentication, business logic, and endpoints absent from the schema or crawl may remain untested.")
+	}
+	if options.Kind == "net" {
+		r.Limitations = append(r.Limitations,
+			"Port scans open TCP connections to the target; scan only addresses you are authorized to test.",
+			"Connect scans find TCP listeners only; UDP, service identity, and ports a firewall drops are not tested.",
+			"Pug passes one literal IP address and a fixed rate but does not enforce an outbound firewall.")
 	}
 	requested := map[string]bool{}
 	for _, check := range options.Checks {
@@ -319,6 +366,19 @@ func buildPlan(options Options, name, temp string) (plan, error) {
 		p.artifact = ""
 		p.invocation.Args = []string{"-u", options.Target, "-t", options.Templates, "-jsonl", "-silent", "-disable-update-check", "-no-interactsh", "-disable-redirects", "-type", "http", "-rate-limit", "5", "-concurrency", "1", "-omit-raw"}
 		p.parser = parseNuclei
+	case "ports":
+		expected := map[int]bool{}
+		spec := options.Ports
+		for _, port := range options.Expect {
+			expected[port] = true
+			spec += "," + strconv.Itoa(port)
+		}
+		// Connect scans need no privileges, unlike SYN, which falls back silently; -Pn leaves liveness to --expect.
+		// 500 packets per second with naabu's default retries; all 65535 ports can exceed the default --timeout.
+		p.invocation.Args = []string{"-host", options.Target, "-p", spec, "-s", "c", "-Pn", "-rate", "500", "-json", "-silent", "-duc", "-no-color", "-no-stdin"}
+		p.invocation.Env = tools.IsolatedEnv("naabu", temp)
+		p.artifact = ""
+		p.parser = func(data []byte) ([]report.Finding, error) { return parseNaabu(data, options.Target, expected) }
 	case "zap":
 		if options.ZAPImage == "" {
 			return p, fmt.Errorf("no locally installed digest-pinned ZAP image supplied; use --zap-image")
@@ -382,7 +442,7 @@ func runCheck(ctx context.Context, options Options, name string, executor runner
 	scanCtx, cancel := context.WithTimeout(ctx, options.Timeout)
 	defer cancel()
 	versionCtx, versionCancel := context.WithTimeout(scanCtx, 5*time.Second)
-	version := executor.Run(versionCtx, runner.Invocation{Program: p.invocation.Program, Args: tools.VersionArgs(p.invocation.Program), Dir: temp})
+	version := executor.Run(versionCtx, runner.Invocation{Program: p.invocation.Program, Args: tools.VersionArgs(p.invocation.Program), Dir: temp, Env: p.invocation.Env})
 	versionCancel()
 	if errors.Is(version.Err, exec.ErrNotFound) {
 		check.Status, check.Reason = "unavailable", "executable not found on PATH: "+p.invocation.Program

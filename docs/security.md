@@ -32,6 +32,8 @@ Application checks send active requests and can change application data. `--allo
 
 Schemathesis uses the supplied local schema and base URL. Nuclei uses supplied local HTTP templates. Both disable redirects. Schemas can contain external references, and templates can contain additional request logic. ZAP crawls and actively scans from the target. Pug does not enforce an outbound firewall for these tools.
 
+`pug net` opens TCP connections to one literal IP address at a fixed rate. naabu's passive, cloud upload, proxy, and update features stay off, and naabu runs with `HOME` and `XDG_CONFIG_HOME` set to a private temporary directory, so it writes no configuration to your home directory. Pug does not enforce an outbound firewall for the scan.
+
 Tests without credentials do not cover authenticated behavior. Business logic, authorization roles, and endpoints absent from the schema or crawl can remain untested.
 
 ## Reports and subprocesses

@@ -284,6 +284,55 @@ func TestRealSecretsHistory(t *testing.T) {
 	t.Logf("secrets-history: %d findings, tool %s", len(r.Findings()), r.Checks[0].Version)
 }
 
+func TestRealPortScan(t *testing.T) {
+	requireTool(t, "naabu")
+	listen := func() int {
+		t.Helper()
+		l, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { l.Close() })
+		go func() {
+			for {
+				c, err := l.Accept()
+				if err != nil {
+					return
+				}
+				c.Close()
+			}
+		}()
+		return l.Addr().(*net.TCPAddr).Port
+	}
+	expected, unexpected := listen(), listen()
+	free, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	closed := free.Addr().(*net.TCPAddr).Port
+	free.Close()
+	ports := fmt.Sprintf("%d,%d", expected, unexpected)
+	scan := func(expect int) report.Report {
+		options := Options{Kind: "net", Target: "127.0.0.1", Checks: []string{"ports"}, Ports: ports, Expect: []int{expect}, Timeout: time.Minute, Version: "integration"}
+		if err := Validate(&options); err != nil {
+			t.Fatal(err)
+		}
+		return Scan(t.Context(), options, runner.Local{})
+	}
+	r := scan(expected)
+	want := fmt.Sprintf("127.0.0.1:%d/tcp", unexpected)
+	if !r.Complete || len(r.Findings()) != 1 || r.Findings()[0].Location != want {
+		data, _ := json.MarshalIndent(r, "", "  ")
+		t.Fatalf("real naabu did not report only %s:\n%s", want, data)
+	}
+	t.Logf("ports: %d findings, tool %s", len(r.Findings()), r.Checks[0].Version)
+	// Nothing answers on the closed port, so expecting it must not pass as clean.
+	if down := scan(closed); down.Complete || down.Checks[0].Status != "failed" {
+		data, _ := json.MarshalIndent(down, "", "  ")
+		t.Fatalf("scan with no expected port answering was reported complete:\n%s", data)
+	}
+}
+
 func TestRealApplicationScanners(t *testing.T) {
 	for _, name := range []string{"api", "exposure"} {
 		t.Run(name, func(t *testing.T) {

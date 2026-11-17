@@ -27,6 +27,8 @@ func TestUsageErrors(t *testing.T) {
 		{name: "missing target", args: []string{"scan"}},
 		{name: "unknown flag", args: []string{"scan", ".", "--made-up"}},
 		{name: "active opt-in", args: []string{"app", "http://localhost:8000"}},
+		{name: "port scan opt-in", args: []string{"net", "127.0.0.1", "--ports", "22", "--expect", "22"}},
+		{name: "port scan hostname", args: []string{"net", "localhost", "--ports", "22", "--expect", "22", "--allow-active"}},
 		{name: "mutable image", args: []string{"image", "alpine:latest"}},
 		{name: "invalid format", args: []string{"scan", ".", "--format", "yaml"}},
 		{name: "invalid timeout", args: []string{"scan", ".", "--timeout", "-1s"}},

@@ -35,6 +35,24 @@
       "sha256": "bdbea0508e439b144f49de14e775908de5f902f3d14ea7ae8354bae72b0b72ef"
     }
   },
+  "naabu": {
+    "darwin/arm64": {
+      "url": "https://github.com/projectdiscovery/naabu/releases/download/v2.7.0/naabu_2.7.0_macOS_arm64.zip",
+      "sha256": "25caf00cfbba2b36aa5285c7605909e2bb668dac98729ba939ad3061df9551cf"
+    },
+    "darwin/amd64": {
+      "url": "https://github.com/projectdiscovery/naabu/releases/download/v2.7.0/naabu_2.7.0_macOS_amd64.zip",
+      "sha256": "97eed2223ba5bc0958621569dc92e8c4c257ec3d3ee3c1a9baddf23f152eb825"
+    },
+    "linux/arm64": {
+      "url": "https://github.com/projectdiscovery/naabu/releases/download/v2.7.0/naabu_2.7.0_linux_arm64.zip",
+      "sha256": "e88af9bbfd777e2ffab6f84696747ba74de98fafeda882c078d158a610dbd86e"
+    },
+    "linux/amd64": {
+      "url": "https://github.com/projectdiscovery/naabu/releases/download/v2.7.0/naabu_2.7.0_linux_amd64.zip",
+      "sha256": "0cc77c0ca32d2f519ffbaa7665bb0e7c88c40753ab22f03551d453a1a823e9f0"
+    }
+  },
   "actionlint": {
     "darwin/arm64": {
       "url": "https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_darwin_arm64.tar.gz",

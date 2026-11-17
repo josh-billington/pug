@@ -77,7 +77,7 @@ func setupCommand() *cobra.Command {
 	}
 	flags := cmd.Flags()
 	flags.BoolVar(&options.CheckOnly, "check", false, "Check tools without downloading or installing")
-	flags.StringSliceVar(&options.Tools, "tools", setup.NativeTools, "Scanners to check and install if missing; opt-in: trufflehog")
+	flags.StringSliceVar(&options.Tools, "tools", setup.NativeTools, "Scanners to check and install if missing; opt-in: trufflehog,naabu")
 	flags.BoolVar(&options.WithZAP, "with-zap", false, "Also pull the pinned ZAP image. Requires Docker")
 	flags.StringVar(&options.ZAPImage, "zap-image", tools.ZAPImage, "Digest-pinned ZAP image to pull if missing")
 	flags.DurationVar(&options.Timeout, "timeout", 10*time.Minute, "Timeout per tool installation")
