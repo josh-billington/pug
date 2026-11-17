@@ -1,149 +1,126 @@
 package rules
 
 import (
-	"archive/tar"
-	"compress/gzip"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
-	"net/http"
 	"os"
-	"path"
+	"os/exec"
 	"path/filepath"
-	"slices"
-	"sort"
 	"strings"
 	"time"
 
-	"github.com/josh-billington/pug/internal/tools"
+	"github.com/josh-billington/pug/internal/runner"
 )
 
-const (
-	manifestName = "manifest.json"
-	maxEntry     = 1 << 20
-	// tar inflates skipped entries to reach the next header, so this bounds the
-	// whole decompressed stream, not only the files extract keeps.
-	maxDecompressed = 64 << 20
-	staleAfter      = time.Hour
-)
+const staleAfter = time.Hour
 
-// Manifest records what an installed pack directory holds. Install writes it
-// last, so its presence marks a complete install.
-type Manifest struct {
-	Pack      string `json:"pack"`
-	Repo      string `json:"repo"`
-	Commit    string `json:"commit"`
-	SHA256    string `json:"sha256"`
-	License   string `json:"license"`
-	RuleFiles int    `json:"rule_files"`
-}
-
-// Dir is where the pack is installed under Pug's home.
 func Dir(home, name string) string { return filepath.Join(home, "rules", name) }
 
-func ReadManifest(home string, p Pack) (Manifest, error) {
-	data, err := os.ReadFile(filepath.Join(Dir(home, p.Name), manifestName))
-	if err != nil {
-		return Manifest{}, err
-	}
-	var m Manifest
-	if err := json.Unmarshal(data, &m); err != nil {
-		return Manifest{}, fmt.Errorf("decode %s manifest: %w", p.Name, err)
-	}
-	return m, nil
-}
-
-// Installed reports whether the pack's pinned commit is installed.
-func Installed(home string, p Pack) bool {
-	m, err := ReadManifest(home, p)
-	return err == nil && m.Commit == p.Commit && m.SHA256 == p.SHA256
-}
-
-func Profiles(home string, p Pack) []string {
-	if p.ProfilesDir == "" {
-		return []string{}
-	}
-	entries, err := os.ReadDir(filepath.Join(Dir(home, p.Name), p.ProfilesDir))
-	if err != nil {
-		return []string{}
-	}
-	profiles := []string{}
-	for _, entry := range entries {
-		if name, ok := strings.CutSuffix(entry.Name(), ".list"); ok && entry.Type().IsRegular() {
-			profiles = append(profiles, name)
-		}
-	}
-	sort.Strings(profiles)
-	return profiles
-}
-
-// Install downloads the pinned tarball, verifies its digest, and replaces the
-// pack directory with only its rule files, profiles, and license. It does
-// nothing when the pinned commit is already installed, and reports whether
-// it changed anything.
-func Install(ctx context.Context, client *http.Client, home string, p Pack) (Manifest, bool, error) {
-	if !p.Pinned() {
-		return Manifest{}, false, fmt.Errorf("rule pack %s is not pinned", p.Name)
-	}
-	if m, err := ReadManifest(home, p); err == nil && m.Commit == p.Commit && m.SHA256 == p.SHA256 {
-		return m, false, nil
-	}
+func Install(ctx context.Context, executor runner.Executor, home string, spec InstallSpec) (string, error) {
 	parent := filepath.Join(home, "rules")
 	if err := os.MkdirAll(parent, 0o700); err != nil {
-		return Manifest{}, false, err
+		return "", fmt.Errorf("create rules directory: %w", err)
 	}
-	if err := removeStale(parent, p.Name); err != nil {
-		return Manifest{}, false, err
+	if err := removeStale(parent, spec.Name); err != nil {
+		return "", err
 	}
-	work, err := os.MkdirTemp(parent, ".tmp."+p.Name+".*")
+	work, err := os.MkdirTemp(parent, ".tmp-"+spec.Name+"-")
 	if err != nil {
-		return Manifest{}, false, err
+		return "", fmt.Errorf("create install workspace: %w", err)
 	}
 	defer os.RemoveAll(work)
-	archive, err := os.Create(filepath.Join(work, "pack.tar.gz"))
-	if err != nil {
-		return Manifest{}, false, err
-	}
-	defer archive.Close()
-	if err := tools.Download(ctx, client, p.TarballURL(), p.SHA256, archive); err != nil {
-		return Manifest{}, false, fmt.Errorf("download %s: %w", p.Name, err)
-	}
 	tree := filepath.Join(work, "tree")
-	if err := os.Mkdir(tree, 0o700); err != nil {
-		return Manifest{}, false, err
+	if _, err := runGit(ctx, executor, "", []string{"clone", "--depth", "1", "--no-tags", "--template=", "--", spec.URL, tree}); err != nil {
+		return "", err
 	}
-	count, err := extract(archive, tree, p)
+	if spec.Commit != "" {
+		if _, err := runGit(ctx, executor, tree, []string{"fetch", "--depth", "1", "--no-tags", "--", "origin", spec.Commit}); err != nil {
+			if len(spec.Commit) >= 40 {
+				return "", err
+			}
+			// Servers generally require a full object ID when fetching an unadvertised commit.
+			if _, err := runGit(ctx, executor, tree, []string{"fetch", "--unshallow", "--no-tags", "--", "origin"}); err != nil {
+				return "", err
+			}
+			resolved, err := runGit(ctx, executor, tree, []string{"rev-parse", "--verify", spec.Commit + "^{commit}"})
+			if err != nil {
+				return "", err
+			}
+			if _, err := runGit(ctx, executor, tree, []string{"checkout", "--detach", resolved, "--"}); err != nil {
+				return "", err
+			}
+		} else {
+			if _, err := runGit(ctx, executor, tree, []string{"checkout", "--detach", "FETCH_HEAD", "--"}); err != nil {
+				return "", err
+			}
+		}
+	}
+	commit, err := runGit(ctx, executor, tree, []string{"rev-parse", "--verify", "HEAD"})
 	if err != nil {
-		return Manifest{}, false, fmt.Errorf("extract %s: %w", p.Name, err)
+		return "", err
 	}
-	m := Manifest{Pack: p.Name, Repo: p.Repo, Commit: p.Commit, SHA256: p.SHA256, License: p.License, RuleFiles: count}
-	data, err := json.MarshalIndent(m, "", "  ")
-	if err != nil {
-		return Manifest{}, false, err
+	if spec.Commit != "" && !strings.HasPrefix(commit, spec.Commit) {
+		return "", fmt.Errorf("installed commit %s does not match requested commit %s", commit, spec.Commit)
 	}
-	if err := os.WriteFile(filepath.Join(tree, manifestName), append(data, '\n'), 0o600); err != nil {
-		return Manifest{}, false, err
-	}
-	destination := Dir(home, p.Name)
-	if err := os.Rename(destination, filepath.Join(work, "previous")); err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return Manifest{}, false, err
+	destination := Dir(home, spec.Name)
+	previous := filepath.Join(work, "previous")
+	if err := os.Rename(destination, previous); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return "", fmt.Errorf("move previous install: %w", err)
 	}
 	if err := os.Rename(tree, destination); err != nil {
-		return Manifest{}, false, err
+		restoreErr := os.Rename(previous, destination)
+		if errors.Is(restoreErr, fs.ErrNotExist) {
+			restoreErr = nil
+		}
+		return "", fmt.Errorf("replace rule pack: %w", errors.Join(err, restoreErr))
 	}
-	return m, true, nil
+	return commit, nil
+}
+
+func Commit(ctx context.Context, executor runner.Executor, dir string) (string, error) {
+	if _, err := os.Lstat(filepath.Join(dir, ".git")); errors.Is(err, fs.ErrNotExist) {
+		return "", nil
+	} else if err != nil {
+		return "", fmt.Errorf("inspect rule checkout: %w", err)
+	}
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	return runGit(ctx, executor, dir, []string{"rev-parse", "--verify", "HEAD"})
+}
+
+func runGit(ctx context.Context, executor runner.Executor, dir string, args []string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+	env := []string{}
+	for _, value := range os.Environ() {
+		if !strings.HasPrefix(value, "GIT_") {
+			env = append(env, value)
+		}
+	}
+	env = append(env, "GIT_TERMINAL_PROMPT=0", "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null", "GIT_ATTR_NOSYSTEM=1")
+	args = append([]string{"-c", "core.hooksPath=/dev/null"}, args...)
+	result := executor.Run(ctx, runner.Invocation{Program: "git", Args: args, Dir: dir, Env: env})
+	if errors.Is(result.Err, exec.ErrNotFound) {
+		return "", fmt.Errorf("git is required to install and inspect rule packs; run pug doctor")
+	}
+	if ctx.Err() != nil {
+		return "", fmt.Errorf("git cancelled or timed out: %w", ctx.Err())
+	}
+	if result.Err != nil || result.ExitCode != 0 || result.Truncated {
+		return "", fmt.Errorf("git %s failed (exit %d): %s", args[2], result.ExitCode, strings.TrimSpace(string(result.Stderr)))
+	}
+	return strings.TrimSpace(string(result.Stdout)), nil
 }
 
 func removeStale(parent, name string) error {
 	entries, err := os.ReadDir(parent)
 	if err != nil {
-		return err
+		return fmt.Errorf("read install workspaces: %w", err)
 	}
 	for _, entry := range entries {
-		if !strings.HasPrefix(entry.Name(), ".tmp."+name+".") {
+		if !strings.HasPrefix(entry.Name(), ".tmp-"+name+"-") {
 			continue
 		}
 		info, err := entry.Info()
@@ -157,115 +134,24 @@ func removeStale(parent, name string) error {
 	return nil
 }
 
-type entryKind int
-
-const (
-	skipEntry entryKind = iota
-	ruleEntry
-	plainEntry
-)
-
-func classify(p Pack, rel string) entryKind {
-	if rel == "LICENSE" {
-		return plainEntry
-	}
-	if p.ProfilesDir != "" && path.Dir(rel) == p.ProfilesDir && path.Ext(rel) == ".list" {
-		return plainEntry
-	}
-	top, _, _ := strings.Cut(rel, "/")
-	base := path.Base(rel)
-	ext := path.Ext(rel)
-	// Upstream test fixtures (*.test.yaml, *.fixed.*) look like rules and break a config.
-	if slices.Contains(p.RuleDirs, top) && (ext == ".yml" || ext == ".yaml") && !strings.Contains(base, ".test.") && !strings.Contains(base, ".fixed.") {
-		return ruleEntry
-	}
-	return skipEntry
-}
-
-func extract(archive *os.File, tree string, p Pack) (int, error) {
-	if _, err := archive.Seek(0, io.SeekStart); err != nil {
-		return 0, err
-	}
-	gz, err := gzip.NewReader(archive)
+func Profiles(dir string) ([]string, error) {
+	root, err := os.OpenRoot(dir)
 	if err != nil {
-		return 0, err
-	}
-	defer gz.Close()
-	root, err := os.OpenRoot(tree)
-	if err != nil {
-		return 0, err
+		return nil, fmt.Errorf("open rule pack: %w", err)
 	}
 	defer root.Close()
-	reader := tar.NewReader(&failAtLimitReader{r: gz, left: maxDecompressed})
-	count := 0
-	for {
-		header, err := reader.Next()
-		if errors.Is(err, io.EOF) {
-			break
-		}
-		if err != nil {
-			return count, err
-		}
-		if header.Typeflag != tar.TypeReg {
-			continue
-		}
-		// GitHub archives put everything under one "<repo>-<commit>/" directory.
-		_, rel, ok := strings.Cut(header.Name, "/")
-		if !ok {
-			continue
-		}
-		kind := classify(p, rel)
-		if kind == skipEntry {
-			continue
-		}
-		if !fs.ValidPath(rel) {
-			return count, fmt.Errorf("archive path %q escapes the pack", header.Name)
-		}
-		if header.Size > maxEntry {
-			return count, fmt.Errorf("%s exceeds %d bytes", rel, maxEntry)
-		}
-		data, err := io.ReadAll(io.LimitReader(reader, maxEntry))
-		if err != nil {
-			return count, err
-		}
-		if kind == ruleEntry {
-			_, err := parseRules(data)
-			if errors.Is(err, errNotRules) {
-				continue
-			}
-			if err != nil {
-				return count, fmt.Errorf("%s: %w", rel, err)
-			}
-			count++
-		}
-		if err := root.MkdirAll(filepath.FromSlash(path.Dir(rel)), 0o700); err != nil {
-			return count, err
-		}
-		if err := root.WriteFile(filepath.FromSlash(rel), data, 0o600); err != nil {
-			return count, err
+	entries, err := fs.ReadDir(root.FS(), "configs")
+	if errors.Is(err, fs.ErrNotExist) {
+		return []string{}, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read rule profiles: %w", err)
+	}
+	profiles := []string{}
+	for _, entry := range entries {
+		if name, ok := strings.CutSuffix(entry.Name(), ".list"); ok && entry.Type().IsRegular() && profileName.MatchString(name) {
+			profiles = append(profiles, name)
 		}
 	}
-	if count == 0 {
-		return 0, fmt.Errorf("archive contains no rule files")
-	}
-	return count, nil
-}
-
-var errArchiveTooLarge = fmt.Errorf("pack archive expands beyond %d bytes", maxDecompressed)
-
-type failAtLimitReader struct {
-	r    io.Reader
-	left int64
-}
-
-func (b *failAtLimitReader) Read(p []byte) (int, error) {
-	if b.left <= 0 {
-		return 0, errArchiveTooLarge
-	}
-	if int64(len(p)) > b.left {
-		p = p[:b.left]
-	}
-	n, err := b.r.Read(p)
-	b.left -= int64(n)
-	return n, err
+	return profiles, nil
 }

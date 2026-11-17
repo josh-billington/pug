@@ -1,4 +1,4 @@
-package tools
+package setup
 
 import (
 	"bytes"
@@ -30,7 +30,7 @@ func TestDownloadVerifiesPinnedDigestAndHTTPStatus(t *testing.T) {
 		{"/missing", hex.EncodeToString(hash[:]), false},
 	} {
 		var output bytes.Buffer
-		err := Download(t.Context(), server.Client(), server.URL+tc.path, tc.digest, &output)
+		err := download(t.Context(), server.Client(), server.URL+tc.path, tc.digest, &output)
 		if (err == nil) != tc.valid {
 			t.Fatalf("download %s: %v", tc.path, err)
 		}

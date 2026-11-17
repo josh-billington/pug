@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -156,7 +155,7 @@ func scanCommand(name, kind, version string) *cobra.Command {
 	switch kind {
 	case "repo":
 		flags.StringSliceVar(&options.Checks, "checks", scanner.RepositoryChecks, "Checks: source,secrets,dependencies,actions,infra")
-		flags.StringSliceVar(&ruleValues, "rules", []string{"starter"}, "Source rules, repeated or comma-separated: starter, an installed pack ("+strings.Join(rules.Names(), ", ")+"), PACK:PROFILE, or a reviewed local .yml file")
+		flags.StringSliceVar(&ruleValues, "rules", []string{"starter"}, "Source rules, repeated or comma-separated: starter, NAME[:PROFILE], a local .yml file, or DIR[:PROFILE]")
 	case "image":
 		options.Checks = []string{"image"}
 	case "app":

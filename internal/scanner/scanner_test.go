@@ -151,7 +151,7 @@ func TestSourceRunsBesideComposedRulesForStableRuleIDs(t *testing.T) {
 		t.Fatal(err)
 	}
 	options := Options{Kind: "repo", Target: t.TempDir(), Checks: []string{"source"}, Timeout: time.Second,
-		Rules: []rules.Spec{{Kind: rules.StarterSpec}, {Kind: rules.FileSpec, Path: custom}}}
+		Rules: []rules.Spec{{Kind: rules.StarterSpec}, {Kind: rules.PathSpec, Path: custom}}}
 	if err := Validate(&options); err != nil {
 		t.Fatal(err)
 	}
@@ -174,10 +174,9 @@ func TestSourceRunsBesideComposedRulesForStableRuleIDs(t *testing.T) {
 	}
 }
 
-func installFakePack(t *testing.T, home string, pack rules.Pack, files map[string]string) {
+func installFakePack(t *testing.T, home string, pack string, files map[string]string) {
 	t.Helper()
-	dir := rules.Dir(home, pack.Name)
-	files["manifest.json"] = `{"pack":"` + pack.Name + `","commit":"` + pack.Commit + `","sha256":"` + pack.SHA256 + `"}`
+	dir := rules.Dir(home, pack)
 	for name, data := range files {
 		path := filepath.Join(dir, name)
 		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
@@ -192,10 +191,7 @@ func installFakePack(t *testing.T, home string, pack rules.Pack, files map[strin
 func TestSourceCheckWithRulePacks(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("PUG_HOME", home)
-	pack := rules.Pack{
-		Name: "fixture", Repo: "example/rules", Commit: strings.Repeat("a", 40), SHA256: strings.Repeat("b", 64),
-		License: "MIT", RuleDirs: []string{"python"}, ProfilesDir: "configs", DefaultProfile: "default",
-	}
+	pack := "fixture"
 	sarif := `{"version":"2.1.0","runs":[{"tool":{"driver":{"rules":[{"id":"fixture.python.eval","defaultConfiguration":{"level":"error"}}]}},` +
 		`"results":[{"ruleId":"fixture.python.eval","message":{"text":"eval"},"locations":[{"physicalLocation":{"artifactLocation":{"uri":"a.py"},"region":{"startLine":1}}}]}]}]}`
 	executor := executorFunc(func(_ context.Context, i runner.Invocation) runner.Result {
@@ -206,7 +202,7 @@ func TestSourceCheckWithRulePacks(t *testing.T) {
 		}
 		return runner.Result{}
 	})
-	options := Options{Kind: "repo", Target: t.TempDir(), Checks: []string{"source"}, Timeout: time.Second, Rules: []rules.Spec{{Kind: rules.PackSpec, Pack: pack}}}
+	options := Options{Kind: "repo", Target: t.TempDir(), Checks: []string{"source"}, Timeout: time.Second, Rules: []rules.Spec{{Kind: rules.PackSpec, Name: pack}}}
 	if err := Validate(&options); err != nil {
 		t.Fatal(err)
 	}
@@ -219,7 +215,7 @@ func TestSourceCheckWithRulePacks(t *testing.T) {
 		"python/eval.yaml":     "rules:\n  - id: eval\n    languages: [python]\n    severity: ERROR\n    message: eval\n    pattern: eval(...)\n",
 		"configs/default.list": "python/eval.yaml:eval\npython/gone.yaml:gone\n",
 	})
-	options = Options{Kind: "repo", Target: options.Target, Checks: []string{"source"}, Timeout: time.Second, Rules: []rules.Spec{{Kind: rules.PackSpec, Pack: pack}}}
+	options = Options{Kind: "repo", Target: options.Target, Checks: []string{"source"}, Timeout: time.Second, Rules: []rules.Spec{{Kind: rules.PackSpec, Name: pack}}}
 	if err := Validate(&options); err != nil {
 		t.Fatal(err)
 	}
@@ -227,7 +223,7 @@ func TestSourceCheckWithRulePacks(t *testing.T) {
 	if check.Status != "completed" || len(check.Findings) != 1 || check.Findings[0].Severity != "high" {
 		t.Fatalf("pack scan did not complete with its finding: %+v", check)
 	}
-	if check.Rules == nil || check.Rules.Packs["fixture"] != pack.Commit || len(check.Rules.Unresolved) != 1 || !strings.Contains(check.Reason, "skipped 1 profile entries") {
+	if check.Rules == nil || check.Rules.Packs["fixture"] != "" || len(check.Rules.Unresolved) != 1 || !strings.Contains(check.Reason, "skipped 1 profile entries") {
 		t.Fatalf("provenance or unresolved entries not reported: %+v reason=%q", check.Rules, check.Reason)
 	}
 }

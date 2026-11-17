@@ -15,8 +15,6 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
-
-	"github.com/josh-billington/pug/internal/tools"
 )
 
 // Release asset digests from the upstream GitHub release API, pinned at build time.
@@ -99,11 +97,11 @@ func extract(file *os.File, url, name string, destination io.Writer) error {
 }
 
 func copyBinary(destination io.Writer, source io.Reader) error {
-	n, err := io.Copy(destination, io.LimitReader(source, tools.MaxDownload+1))
+	n, err := io.Copy(destination, io.LimitReader(source, maxDownload+1))
 	if err != nil {
 		return err
 	}
-	if n == 0 || n > tools.MaxDownload {
+	if n == 0 || n > maxDownload {
 		return fmt.Errorf("binary must contain between 1 byte and 256 MiB")
 	}
 	return nil
@@ -125,7 +123,7 @@ func (e engine) installBinary(ctx context.Context, name string) (string, error) 
 	defer os.Remove(archive.Name())
 	defer archive.Close()
 	client := &http.Client{Timeout: 5 * time.Minute}
-	if err := tools.Download(ctx, client, a.URL, a.SHA256, archive); err != nil {
+	if err := download(ctx, client, a.URL, a.SHA256, archive); err != nil {
 		return "", err
 	}
 	candidate, err := os.CreateTemp(bin, ".install-*")

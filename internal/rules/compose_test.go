@@ -1,11 +1,9 @@
 package rules
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -21,11 +19,8 @@ func ruleFile(ids ...string) *fstest.MapFile {
 	return &fstest.MapFile{Data: []byte(b.String())}
 }
 
-func testPack() (Pack, fstest.MapFS) {
-	pack := Pack{
-		Name: "amp", Repo: "example/rules", Commit: strings.Repeat("c", 40), SHA256: strings.Repeat("d", 64),
-		License: "MIT", RuleDirs: []string{"python", "go"}, ProfilesDir: "configs", DefaultProfile: "default",
-	}
+func testPack() (string, fstest.MapFS) {
+	pack := "amp"
 	files := fstest.MapFS{
 		"python/lang/eval.yaml":       ruleFile("eval", "eval-in-loop"),
 		"python/flask/debug.yml":      ruleFile("debug-enabled"),
@@ -49,8 +44,8 @@ func ids(t *testing.T, r Ruleset) []string {
 	return got
 }
 
-func packSource(pack Pack, files fstest.MapFS, profile string) Source {
-	return Source{Spec: Spec{Kind: PackSpec, Pack: pack, Profile: profile}, Files: files, Commit: pack.Commit}
+func packSource(pack string, files fstest.MapFS, profile string) Source {
+	return Source{Spec: Spec{Kind: PackSpec, Name: pack, Profile: profile}, Files: files, Name: pack, Commit: strings.Repeat("c", 40)}
 }
 
 func TestComposeQualifiesPackRulesAndRecordsUnresolvedEntries(t *testing.T) {
@@ -65,11 +60,11 @@ func TestComposeQualifiesPackRulesAndRecordsUnresolvedEntries(t *testing.T) {
 		t.Fatalf("ids = %v, want %v", got, want)
 	}
 	p := r.Provenance
-	wantUnresolved := []string{"amp:default python/lang/eval.yaml:missing-id", "amp:default trailofbits/go/x.yaml:x", "amp:default not-an-entry"}
+	wantUnresolved := []string{"amp python/lang/eval.yaml:missing-id", "amp trailofbits/go/x.yaml:x", "amp not-an-entry"}
 	if !slices.Equal(p.Unresolved, wantUnresolved) {
 		t.Fatalf("unresolved = %q, want %q", p.Unresolved, wantUnresolved)
 	}
-	if !slices.Equal(p.Specs, []string{"amp:default"}) || p.Packs["amp"] != pack.Commit || p.Rules != 2 || p.SHA256 == "" {
+	if !slices.Equal(p.Specs, []string{"amp"}) || p.Packs["amp"] != strings.Repeat("c", 40) || p.Rules != 2 || p.SHA256 == "" {
 		t.Fatalf("provenance = %+v", p)
 	}
 }
@@ -77,7 +72,7 @@ func TestComposeQualifiesPackRulesAndRecordsUnresolvedEntries(t *testing.T) {
 func TestComposeWithoutProfileTakesEveryRuleFile(t *testing.T) {
 	t.Parallel()
 	pack, files := testPack()
-	pack.ProfilesDir, pack.DefaultProfile = "", ""
+	delete(files, "configs/default.list")
 	r, err := Compose([]Source{packSource(pack, files, "")})
 	if err != nil {
 		t.Fatal(err)
@@ -116,7 +111,7 @@ func TestComposeKeepsStarterAndFileIDs(t *testing.T) {
 	team := fstest.MapFS{"team.yml": ruleFile("team-rule")}
 	sources := []Source{
 		{Spec: Spec{Kind: StarterSpec}, Files: starterFS, File: "starter.yml"},
-		{Spec: Spec{Kind: FileSpec, Path: "/rules/team.yml"}, Files: team, File: "team.yml"},
+		{Spec: Spec{Kind: PathSpec, Path: "/rules/team.yml"}, Files: team, File: "team.yml"},
 	}
 	r, err := Compose(sources)
 	if err != nil {
@@ -143,12 +138,12 @@ func TestComposeRejectsConflictsAndBadInput(t *testing.T) {
 	}{
 		{name: "different rule with a taken id", sources: []Source{
 			{Spec: Spec{Kind: StarterSpec}, Files: starterFS, File: "starter.yml"},
-			{Spec: Spec{Kind: FileSpec, Path: "a.yml"}, Files: conflict, File: "a.yml"},
+			{Spec: Spec{Kind: PathSpec, Path: "a.yml"}, Files: conflict, File: "a.yml"},
 		}, message: `"javascript-eval" from a.yml conflicts`},
 		{name: "unknown profile", sources: []Source{packSource(pack, files, "nope")}, message: "profiles: default, security-audit"},
-		{name: "not a rules file", sources: []Source{{Spec: Spec{Kind: FileSpec, Path: "x.yml"}, Files: fstest.MapFS{"x.yml": {Data: []byte("key: value\n")}}, File: "x.yml"}}, message: "not an OpenGrep rules file"},
-		{name: "missing file", sources: []Source{{Spec: Spec{Kind: FileSpec, Path: "x.yml"}, Files: fstest.MapFS{}, File: "x.yml"}}, message: "x.yml"},
-		{name: "no rules", sources: []Source{{Spec: Spec{Kind: FileSpec, Path: "x.yml"}, Files: fstest.MapFS{"x.yml": {Data: []byte("rules: []\n")}}, File: "x.yml"}}, message: "no rules"},
+		{name: "not a rules file", sources: []Source{{Spec: Spec{Kind: PathSpec, Path: "x.yml"}, Files: fstest.MapFS{"x.yml": {Data: []byte("key: value\n")}}, File: "x.yml"}}, message: "not an OpenGrep rules file"},
+		{name: "missing file", sources: []Source{{Spec: Spec{Kind: PathSpec, Path: "x.yml"}, Files: fstest.MapFS{}, File: "x.yml"}}, message: "x.yml"},
+		{name: "no rules", sources: []Source{{Spec: Spec{Kind: PathSpec, Path: "x.yml"}, Files: fstest.MapFS{"x.yml": {Data: []byte("rules: []\n")}}, File: "x.yml"}}, message: "no rules"},
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
@@ -159,8 +154,8 @@ func TestComposeRejectsConflictsAndBadInput(t *testing.T) {
 		})
 	}
 	r, err := Compose([]Source{
-		{Spec: Spec{Kind: FileSpec, Path: "a.yml"}, Files: identical, File: "a.yml"},
-		{Spec: Spec{Kind: FileSpec, Path: "b.yml"}, Files: identical, File: "b.yml"},
+		{Spec: Spec{Kind: PathSpec, Path: "a.yml"}, Files: identical, File: "a.yml"},
+		{Spec: Spec{Kind: PathSpec, Path: "b.yml"}, Files: identical, File: "b.yml"},
 	})
 	if err != nil || r.Provenance.Rules != 1 {
 		t.Fatalf("identical rules not unioned: %+v, %v", r.Provenance, err)
@@ -171,22 +166,17 @@ func TestResolveReportsMissingPacksOnce(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("PUG_HOME", home)
 	pack, _ := testPack()
-	installed := pack
-	installed.Name = "installed"
-	dir := Dir(home, installed.Name)
+	installed := "installed"
+	dir := Dir(home, installed)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	manifest, _ := json.Marshal(Manifest{Pack: installed.Name, Commit: installed.Commit, SHA256: installed.SHA256})
-	if err := os.WriteFile(filepath.Join(dir, manifestName), manifest, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	specs := []Spec{{Kind: PackSpec, Pack: pack}, {Kind: PackSpec, Pack: pack, Profile: "secrets"}, {Kind: PackSpec, Pack: installed}, {Kind: StarterSpec}}
+	specs := []Spec{{Kind: PackSpec, Name: pack}, {Kind: PackSpec, Name: pack, Profile: "secrets"}, {Kind: PackSpec, Name: installed}, {Kind: StarterSpec}}
 	sources, missing, err := Resolve(specs)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(missing, []string{"amp"}) || len(sources) != 2 || sources[0].Commit != installed.Commit {
+	if !slices.Equal(missing, []string{"amp"}) || len(sources) != 2 || sources[0].Name != installed {
 		t.Fatalf("missing = %v, sources = %+v", missing, sources)
 	}
 }
@@ -201,8 +191,8 @@ func TestComposeKeepsEachFilesAliasesSelfContained(t *testing.T) {
 		"second.yml": {Data: []byte("rules:\n" + rule("b-exec", "&common exec(...)") + rule("y-exec", "*common"))},
 	}
 	r, err := Compose([]Source{
-		{Spec: Spec{Kind: FileSpec, Path: "/first.yml"}, Files: files, File: "first.yml"},
-		{Spec: Spec{Kind: FileSpec, Path: "/second.yml"}, Files: files, File: "second.yml"},
+		{Spec: Spec{Kind: PathSpec, Path: "/first.yml"}, Files: files, File: "first.yml"},
+		{Spec: Spec{Kind: PathSpec, Path: "/second.yml"}, Files: files, File: "second.yml"},
 	})
 	if err != nil {
 		t.Fatal(err)

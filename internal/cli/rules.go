@@ -3,21 +3,26 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"net/http"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/josh-billington/pug/internal/rules"
+	"github.com/josh-billington/pug/internal/runner"
 	"github.com/josh-billington/pug/internal/tools"
 )
 
 func rulesCommand() *cobra.Command {
 	cmd := &cobra.Command{
-		Use: "rules", Short: "List and install pinned OpenGrep rule packs",
-		Long: "Rule packs are upstream OpenGrep rule repositories pinned by commit and SHA-256.\nPug downloads a pack only when you run pug rules install; scans never use the network.\nSelect installed packs with pug scan --rules.",
+		Use: "rules", Short: "List and install OpenGrep rule repositories",
+		Long: "Install upstream OpenGrep rule repositories with git.\nPug fetches rules only when you run pug rules install; source scans use local rules.\nSelect installed packs with pug scan --rules.",
 		Args: cobra.NoArgs,
 	}
 	cmd.AddCommand(rulesListCommand(), rulesInstallCommand())
@@ -25,33 +30,50 @@ func rulesCommand() *cobra.Command {
 }
 
 type packStatus struct {
-	Name            string   `json:"name"`
-	Repo            string   `json:"repo"`
-	Commit          string   `json:"commit"`
-	License         string   `json:"license"`
-	DefaultProfile  string   `json:"default_profile,omitempty"`
-	Installed       bool     `json:"installed"`
-	InstalledCommit string   `json:"installed_commit,omitempty"`
-	Profiles        []string `json:"profiles"`
-	Path            string   `json:"path"`
+	Name      string   `json:"name"`
+	URL       string   `json:"url,omitempty"`
+	Installed bool     `json:"installed"`
+	Path      string   `json:"path"`
+	Commit    string   `json:"commit,omitempty"`
+	Profiles  []string `json:"profiles"`
 }
 
 func rulesListCommand() *cobra.Command {
 	return &cobra.Command{
-		Use: "list", Short: "List rule packs, their pins, profiles, and install state as JSON", Args: cobra.NoArgs,
+		Use: "list", Short: "List installed packs and built-in aliases as JSON", Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			home, err := tools.Home()
 			if err != nil {
 				return err
 			}
-			statuses := []packStatus{}
-			for _, p := range rules.Packs {
-				status := packStatus{
-					Name: p.Name, Repo: p.Repo, Commit: p.Commit, License: p.License, DefaultProfile: p.DefaultProfile,
-					Installed: rules.Installed(home, p), Profiles: rules.Profiles(home, p), Path: rules.Dir(home, p.Name),
+			names := rules.Names()
+			entries, err := os.ReadDir(filepath.Join(home, "rules"))
+			if err != nil && !errors.Is(err, fs.ErrNotExist) {
+				return fmt.Errorf("list rule packs: %w", err)
+			}
+			for _, entry := range entries {
+				if entry.IsDir() && !strings.HasPrefix(entry.Name(), ".") && !slices.Contains(names, entry.Name()) {
+					names = append(names, entry.Name())
 				}
-				if m, err := rules.ReadManifest(home, p); err == nil {
-					status.InstalledCommit = m.Commit
+			}
+			slices.Sort(names)
+			statuses := make([]packStatus, 0, len(names))
+			for _, name := range names {
+				status := packStatus{Name: name, URL: rules.Aliases[name], Path: rules.Dir(home, name), Profiles: []string{}}
+				info, err := os.Stat(status.Path)
+				if err != nil && !errors.Is(err, fs.ErrNotExist) {
+					return fmt.Errorf("inspect rule pack: %w", err)
+				}
+				status.Installed = err == nil && info.IsDir()
+				if status.Installed {
+					status.Commit, err = rules.Commit(cmd.Context(), runner.Local{}, status.Path)
+					if err != nil {
+						return err
+					}
+					status.Profiles, err = rules.Profiles(status.Path)
+					if err != nil {
+						return err
+					}
 				}
 				statuses = append(statuses, status)
 			}
@@ -65,50 +87,39 @@ func rulesListCommand() *cobra.Command {
 func rulesInstallCommand() *cobra.Command {
 	var timeout time.Duration
 	cmd := &cobra.Command{
-		Use: "install PACK...", Short: "Download, verify, and install pinned rule packs",
-		Example: "  pug rules install amplify\n  pug scan . --checks source --rules amplify:security-audit",
-		Args: func(_ *cobra.Command, args []string) error {
-			if len(args) == 0 {
-				return usageError("rules install requires at least one pack: %s", strings.Join(rules.Names(), ", "))
-			}
-			return nil
-		},
+		Use: "install NAME|URL[@COMMIT]...", Short: "Clone or update upstream rule repositories",
+		Example: "  pug rules install amplify\n  pug rules install github.com/trailofbits/semgrep-rules\n  pug scan . --checks source --rules amplify:security-audit",
+		Args:    cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if timeout <= 0 {
 				return usageError("timeout must be positive")
 			}
-			packs := make([]rules.Pack, 0, len(args))
-			for _, name := range args {
-				p, ok := rules.Lookup(name)
-				if !ok {
-					return usageError("unknown rule pack %q; available: %s", name, strings.Join(rules.Names(), ", "))
+			specs := make([]rules.InstallSpec, 0, len(args))
+			for _, value := range args {
+				spec, err := rules.ParseInstallSpec(value)
+				if err != nil {
+					return usageError("%v", err)
 				}
-				packs = append(packs, p)
+				specs = append(specs, spec)
 			}
 			home, err := tools.Home()
 			if err != nil {
 				return usageError("%v", err)
 			}
-			out := cmd.OutOrStdout()
 			failed := false
-			for _, p := range packs {
+			for _, spec := range specs {
 				ctx, cancel := context.WithTimeout(cmd.Context(), timeout)
-				m, changed, err := rules.Install(ctx, &http.Client{}, home, p)
+				commit, err := rules.Install(ctx, runner.Local{}, home, spec)
 				cancel()
 				if err != nil {
 					failed = true
-					fmt.Fprintf(cmd.ErrOrStderr(), "pug: %s: %v\n", p.Name, err)
+					fmt.Fprintf(cmd.ErrOrStderr(), "pug: %s: %v\n", spec.Name, err)
 					continue
 				}
-				state := "already installed"
-				if changed {
-					state = "installed"
-				}
-				fmt.Fprintf(out, "%s: %s at %s, %d rule files, in %s\n", p.Name, state, m.Commit[:12], m.RuleFiles, rules.Dir(home, p.Name))
-				fmt.Fprintf(out, "  License: %s. Review the upstream terms in %s before use.\n", p.License, "https://github.com/"+p.Repo)
+				fmt.Fprintf(cmd.OutOrStdout(), "%s: %s in %s\n", spec.Name, commit[:min(12, len(commit))], rules.Dir(home, spec.Name))
 			}
 			if cmd.Context().Err() != nil {
-				return &exitError{code: 130, message: "rule pack installation cancelled. Rerun pug rules install to continue"}
+				return &exitError{code: 130, message: "rule pack installation cancelled; rerun pug rules install to continue"}
 			}
 			if failed {
 				return &exitError{code: 1, message: "rule pack installation failed"}
@@ -116,6 +127,6 @@ func rulesInstallCommand() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().DurationVar(&timeout, "timeout", 5*time.Minute, "Timeout per pack download and extraction")
+	cmd.Flags().DurationVar(&timeout, "timeout", 5*time.Minute, "Timeout per repository install")
 	return cmd
 }

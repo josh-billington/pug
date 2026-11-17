@@ -3,14 +3,9 @@
 package scanner
 
 import (
-	"archive/tar"
-	"bytes"
-	"compress/gzip"
-	"crypto/sha256"
-	"encoding/hex"
+	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -114,7 +109,7 @@ func TestRealOpenGrepPartialParseCompletesWithoutStrict(t *testing.T) {
 			fixtureFile(t, repo, "good.rb", "eval(params[:x])\n")
 			fixtureFile(t, repo, "bad.rb", "def broken(\n  eval(x\nclass << <<< end end end )))\n")
 			rulesFile := fixtureFile(t, t.TempDir(), "rules.yml", tt.rules)
-			options := Options{Kind: "repo", Target: repo, Checks: []string{"source"}, Rules: []rules.Spec{{Kind: rules.FileSpec, Path: rulesFile}}, Timeout: 3 * time.Minute, Version: "integration"}
+			options := Options{Kind: "repo", Target: repo, Checks: []string{"source"}, Rules: []rules.Spec{{Kind: rules.PathSpec, Path: rulesFile}}, Timeout: 3 * time.Minute, Version: "integration"}
 			if err := Validate(&options); err != nil {
 				t.Fatal(err)
 			}
@@ -129,61 +124,62 @@ func TestRealOpenGrepPartialParseCompletesWithoutStrict(t *testing.T) {
 	}
 }
 
-type archiveTransport []byte
-
-func (a archiveTransport) RoundTrip(*http.Request) (*http.Response, error) {
-	return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewReader(a)), Header: http.Header{}}, nil
-}
-
-func packArchive(t *testing.T, files map[string]string) []byte {
+func fixtureGit(t *testing.T, dir string, args ...string) string {
 	t.Helper()
-	var data bytes.Buffer
-	gz := gzip.NewWriter(&data)
-	tw := tar.NewWriter(gz)
-	for name, body := range files {
-		if err := tw.WriteHeader(&tar.Header{Name: "fixture-rules-0123/" + name, Mode: 0o644, Size: int64(len(body)), Typeflag: tar.TypeReg}); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := tw.Write([]byte(body)); err != nil {
-			t.Fatal(err)
-		}
+	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
+	defer cancel()
+	args = append([]string{"-c", "core.hooksPath=/dev/null", "-c", "user.name=Pug test", "-c", "user.email=pug@example.invalid"}, args...)
+	result := (runner.Local{}).Run(ctx, runner.Invocation{
+		Program: "git", Args: args, Dir: dir,
+		Env: append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null"),
+	})
+	if result.Err != nil || result.ExitCode != 0 {
+		t.Fatalf("git fixture: %v, %s", result.Err, result.Stderr)
 	}
-	if err := tw.Close(); err != nil {
-		t.Fatal(err)
-	}
-	if err := gz.Close(); err != nil {
-		t.Fatal(err)
-	}
-	return data.Bytes()
+	return strings.TrimSpace(string(result.Stdout))
 }
 
 func TestRealRulePackScan(t *testing.T) {
 	requireTool(t, "opengrep")
 	home := t.TempDir()
 	t.Setenv("PUG_HOME", home)
-	archive := packArchive(t, map[string]string{
+	upstream := filepath.Join(t.TempDir(), "fixture")
+	if err := os.Mkdir(upstream, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	files := map[string]string{
 		"LICENSE": "MIT",
 		"python/lang/eval.yaml": "rules:\n" +
 			"  - id: eval\n    languages: [python]\n    severity: ERROR\n    message: eval of input\n    pattern: eval(...)\n" +
 			"  - id: exec-used\n    languages: [python]\n    severity: WARNING\n    message: exec of input\n    pattern: exec(...)\n",
-		// Rule-shaped fixture with no message: OpenGrep rejects the whole config if it is installed.
+
 		"python/lang/eval.test.yaml": "rules:\n  - id: eval\n    languages: [python]\n    pattern: eval(...)\n",
 		"configs/default.list":       "python/lang/eval.yml:eval\npython/lang/eval.yaml:exec-used\npython/lang/gone.yaml:gone\n",
-	})
-	sum := sha256.Sum256(archive)
-	pack := rules.Pack{
-		Name: "fixture", Repo: "example/rules", Commit: strings.Repeat("0", 40), SHA256: hex.EncodeToString(sum[:]),
-		License: "MIT", RuleDirs: []string{"python"}, ProfilesDir: "configs", DefaultProfile: "default",
 	}
-	if _, _, err := rules.Install(t.Context(), &http.Client{Transport: archiveTransport(archive)}, home, pack); err != nil {
+	for name, body := range files {
+		fixtureFile(t, upstream, name, body)
+	}
+	fixtureGit(t, upstream, "init", "--template=", "--initial-branch=main")
+	fixtureGit(t, upstream, "add", "--", ".")
+	fixtureGit(t, upstream, "commit", "--no-gpg-sign", "-m", "Add rules")
+	commit := fixtureGit(t, upstream, "rev-parse", "HEAD")
+	spec, err := rules.ParseInstallSpec("file://" + upstream)
+	if err != nil {
 		t.Fatal(err)
 	}
+	for range 2 {
+		installed, err := rules.Install(t.Context(), runner.Local{}, home, spec)
+		if err != nil || installed != commit {
+			t.Fatalf("install: %s, %v", installed, err)
+		}
+	}
+
 	repo := t.TempDir()
 	fixtureFile(t, repo, "app.py", "def handler(x, y):\n    eval(x)\n    exec(y)\n")
 	fixtureFile(t, repo, "broken.py", "def broken(:\n    eval(\n")
 	scan := func() report.Report {
 		options := Options{Kind: "repo", Target: repo, Checks: []string{"source"}, Timeout: 3 * time.Minute, Version: "integration",
-			Rules: []rules.Spec{{Kind: rules.PackSpec, Pack: pack}}}
+			Rules: []rules.Spec{{Kind: rules.PackSpec, Name: spec.Name}}}
 		if err := Validate(&options); err != nil {
 			t.Fatal(err)
 		}
@@ -200,7 +196,7 @@ func TestRealRulePackScan(t *testing.T) {
 		data, _ := json.MarshalIndent(check, "", "  ")
 		t.Fatalf("pack scan findings = %v, want %v:\n%s", got, want, data)
 	}
-	if !strings.Contains(check.Reason, "partial") || !strings.Contains(check.Reason, "skipped 1 profile entries") || check.Rules == nil || check.Rules.Packs["fixture"] != pack.Commit {
+	if !strings.Contains(check.Reason, "partial") || !strings.Contains(check.Reason, "skipped 1 profile entries") || check.Rules == nil || check.Rules.Packs["fixture"] != commit {
 		t.Fatalf("reason or provenance incomplete: %q %+v", check.Reason, check.Rules)
 	}
 	diff, err := report.Compare(before, scan())

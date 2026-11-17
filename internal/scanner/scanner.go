@@ -138,15 +138,15 @@ func Validate(options *Options) error {
 		seen[check] = true
 	}
 	for i, spec := range options.Rules {
-		if spec.Kind != rules.FileSpec {
+		if spec.Kind != rules.PathSpec {
 			continue
 		}
 		info, err := os.Stat(spec.Path)
 		if err != nil {
 			return fmt.Errorf("rules must reference an existing local path: %w", err)
 		}
-		if !info.Mode().IsRegular() {
-			return fmt.Errorf("rules must reference a regular file")
+		if !info.Mode().IsRegular() && !info.IsDir() {
+			return fmt.Errorf("rules must reference a regular file or directory")
 		}
 		if options.Rules[i].Path, err = filepath.Abs(spec.Path); err != nil {
 			return fmt.Errorf("resolve rules: %w", err)

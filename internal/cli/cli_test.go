@@ -28,8 +28,8 @@ func TestUsageErrors(t *testing.T) {
 		{name: "invalid timeout", args: []string{"scan", ".", "--timeout", "-1s"}},
 		{name: "invalid threshold", args: []string{"scan", ".", "--fail-on", "anything"}},
 		{name: "sandbox separator", args: []string{"sandbox", "echo"}},
-		{name: "unknown rule pack", args: []string{"scan", ".", "--rules", "made-up"}},
-		{name: "profile on a pack without profiles", args: []string{"scan", ".", "--rules", "opengrep:default"}},
+		{name: "option-like rule pack", args: []string{"scan", ".", "--rules", "-x"}},
+		{name: "invalid profile", args: []string{"scan", ".", "--rules", "amplify:.."}},
 		{name: "missing rules file", args: []string{"scan", ".", "--rules", "starter,missing.yml"}},
 		{name: "rules install without packs", args: []string{"rules", "install"}},
 		{name: "rules install unknown pack", args: []string{"rules", "install", "amplify", "made-up"}},
@@ -97,7 +97,7 @@ func TestRulesListAndUninstalledPackScan(t *testing.T) {
 	var packs []struct {
 		Name      string   `json:"name"`
 		Commit    string   `json:"commit"`
-		License   string   `json:"license"`
+		URL       string   `json:"url"`
 		Installed bool     `json:"installed"`
 		Profiles  []string `json:"profiles"`
 	}
@@ -105,7 +105,7 @@ func TestRulesListAndUninstalledPackScan(t *testing.T) {
 		t.Fatalf("rules list output: %s, %v", stdout.String(), err)
 	}
 	for _, p := range packs {
-		if p.Installed || len(p.Commit) != 40 || p.License == "" || p.Profiles == nil {
+		if p.Installed || p.Commit != "" || p.URL == "" || p.Profiles == nil {
 			t.Fatalf("unexpected pack status: %+v", p)
 		}
 	}
