@@ -174,7 +174,6 @@ func TestSourceRunsBesideComposedRulesForStableRuleIDs(t *testing.T) {
 	}
 }
 
-// installFakePack writes a pack directory as Install would leave it.
 func installFakePack(t *testing.T, home string, pack rules.Pack, files map[string]string) {
 	t.Helper()
 	dir := rules.Dir(home, pack.Name)

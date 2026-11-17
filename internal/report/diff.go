@@ -21,9 +21,7 @@ func Compare(before, after Report) (Diff, error) {
 	old := map[string]Finding{}
 	current := map[string]bool{}
 	previousRules := map[string]*RuleProvenance{}
-	// verifies holds the AFTER checks that can show a BEFORE finding is gone:
-	// completed, and running the same rules as the BEFORE check.
-	verifies := map[string]bool{}
+	canShowAbsent := map[string]bool{}
 	previous := before.Findings()
 	for _, finding := range previous {
 		old[finding.Fingerprint] = finding
@@ -32,7 +30,7 @@ func Compare(before, after Report) (Diff, error) {
 		previousRules[check.Name] = check.Rules
 	}
 	for _, check := range after.Checks {
-		verifies[check.Name] = check.Status == "completed" && sameRules(previousRules[check.Name], check.Rules)
+		canShowAbsent[check.Name] = check.Status == "completed" && sameRules(previousRules[check.Name], check.Rules)
 	}
 	for _, finding := range after.Findings() {
 		current[finding.Fingerprint] = true
@@ -46,7 +44,7 @@ func Compare(before, after Report) (Diff, error) {
 		if current[finding.Fingerprint] {
 			continue
 		}
-		if verifies[finding.Check] {
+		if canShowAbsent[finding.Check] {
 			diff.Absent = append(diff.Absent, finding)
 			continue
 		}

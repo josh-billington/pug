@@ -2,6 +2,7 @@ package rules
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -231,5 +232,16 @@ func TestParseRulesBoundsAliasExpansion(t *testing.T) {
 	b.WriteString("rules: [*a8]\n")
 	if _, err := parseRules([]byte(b.String())); err == nil || !strings.Contains(err.Error(), "expand beyond") {
 		t.Fatalf("error = %v, want alias expansion limit", err)
+	}
+}
+
+func TestParseRulesRejectsRulesInLaterDocuments(t *testing.T) {
+	t.Parallel()
+	data := string(ruleFile("first").Data) + "---\n" + string(ruleFile("second").Data)
+	if _, err := parseRules([]byte(data)); err == nil || errors.Is(err, errNotRules) {
+		t.Fatalf("error = %v, want a hard error for a second document", err)
+	}
+	if _, err := parseRules([]byte("kind: Pod\n---\nkind: Service\n")); !errors.Is(err, errNotRules) {
+		t.Fatalf("error = %v, want multi-document non-rule YAML skipped", err)
 	}
 }

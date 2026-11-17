@@ -1,14 +1,14 @@
 package rules
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
+	"io"
 
 	"go.yaml.in/yaml/v3"
 )
 
-// errNotRules marks YAML that is not an OpenGrep rules file. Upstream packs
-// mix rule files with fixtures and metadata, which install skips.
 var errNotRules = errors.New("not an OpenGrep rules file")
 
 type rule struct {
@@ -16,19 +16,15 @@ type rule struct {
 	node *yaml.Node
 }
 
-// parseRules reads the top-level rules sequence of the file's first YAML
-// document. Every rule must be a mapping with a unique, non-empty string id.
 func parseRules(data []byte) ([]rule, error) {
+	decoder := yaml.NewDecoder(bytes.NewReader(data))
 	var doc yaml.Node
-	if err := yaml.Unmarshal(data, &doc); err != nil {
+	if err := decoder.Decode(&doc); err != nil {
 		return nil, fmt.Errorf("%w: %v", errNotRules, err)
 	}
 	if doc.Kind != yaml.DocumentNode || len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
 		return nil, fmt.Errorf("%w: top level is not a mapping", errNotRules)
 	}
-	// Composition reorders rules from many files into one document, where an
-	// alias could bind to another file's anchor; expanding them keeps each
-	// rule's meaning self-contained.
 	budget := maxExpandedNodes
 	expanded, err := expandAliases(doc.Content[0], &budget)
 	if err != nil {
@@ -37,6 +33,10 @@ func parseRules(data []byte) ([]rule, error) {
 	sequence := mappingValue(expanded, "rules")
 	if sequence == nil || sequence.Kind != yaml.SequenceNode {
 		return nil, fmt.Errorf("%w: no top-level rules list", errNotRules)
+	}
+	var extra yaml.Node
+	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
+		return nil, fmt.Errorf("rules file has more than one YAML document")
 	}
 	rules := make([]rule, 0, len(sequence.Content))
 	seen := map[string]bool{}
@@ -56,8 +56,6 @@ func parseRules(data []byte) ([]rule, error) {
 
 const maxExpandedNodes = 1 << 20
 
-// expandAliases returns a copy of node with every alias replaced by a copy of
-// its target and no anchors left. The budget bounds alias amplification.
 func expandAliases(node *yaml.Node, budget *int) (*yaml.Node, error) {
 	*budget--
 	if *budget < 0 {

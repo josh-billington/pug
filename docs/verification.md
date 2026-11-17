@@ -124,7 +124,7 @@ The unit and integration tests cover profile resolution, ID qualification, alias
 
 ```sh
 go test ./internal/rules ./internal/report ./internal/cli
-go test -tags=integration ./internal/scanner -run 'TestRealOpenGrepParseProblems|TestRealRulePackScan' -count=1
+go test -tags=integration ./internal/scanner -run 'TestRealOpenGrepPartialParseCompletesWithoutStrict|TestRealRulePackScan' -count=1
 ```
 
 ## Untested capabilities

@@ -96,10 +96,7 @@ func TestRealRepositoryScanners(t *testing.T) {
 	}
 }
 
-// TestRealOpenGrepParseProblems pins the evidence for running without
-// --strict: a target OpenGrep cannot fully parse leaves the check completed
-// with a reason, while an invalid rule still fails it.
-func TestRealOpenGrepParseProblems(t *testing.T) {
+func TestRealOpenGrepPartialParseCompletesWithoutStrict(t *testing.T) {
 	requireTool(t, "opengrep")
 	const evalRule = "  - id: ruby-eval\n    languages: [ruby]\n    severity: ERROR\n    message: eval\n    pattern: eval(...)\n"
 	cases := []struct {
@@ -160,8 +157,6 @@ func packArchive(t *testing.T, files map[string]string) []byte {
 	return data.Bytes()
 }
 
-// TestRealRulePackScan installs a local fixture pack through the real
-// installer and scans with real OpenGrep, so no network is needed.
 func TestRealRulePackScan(t *testing.T) {
 	requireTool(t, "opengrep")
 	home := t.TempDir()

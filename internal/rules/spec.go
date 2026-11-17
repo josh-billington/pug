@@ -82,7 +82,7 @@ func ParseSpec(value string) (Spec, error) {
 func (s Spec) String() string {
 	switch s.Kind {
 	case PackSpec:
-		if profile := s.profile(); profile != "" {
+		if profile := s.effectiveProfile(); profile != "" {
 			return s.Pack.Name + ":" + profile
 		}
 		return s.Pack.Name
@@ -93,8 +93,7 @@ func (s Spec) String() string {
 	}
 }
 
-// profile is the profile the spec selects, after applying the pack default.
-func (s Spec) profile() string {
+func (s Spec) effectiveProfile() string {
 	if s.Profile != "" {
 		return s.Profile
 	}

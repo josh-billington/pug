@@ -74,8 +74,6 @@ func newRoot(version string) *cobra.Command {
 	return root
 }
 
-// usageArgs makes every positional-argument error a usage error (exit 2),
-// including cobra's own validators such as cobra.NoArgs.
 func usageArgs(cmd *cobra.Command) {
 	if validate := cmd.Args; validate != nil {
 		cmd.Args = func(c *cobra.Command, args []string) error {

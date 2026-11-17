@@ -135,7 +135,7 @@ func parseSARIF(data []byte, tool string) ([]report.Finding, error) {
 		}
 	}
 	if warnings > 0 {
-		// Notification text can quote target source, so only the count is reported.
+		// Notification text can quote target source, so the reason gives only the count.
 		return findings, partialCoverage(fmt.Sprintf("scanner reported %d warnings, such as target files it could only partly parse; coverage of those files is partial", warnings))
 	}
 	return findings, nil

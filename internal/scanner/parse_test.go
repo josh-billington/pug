@@ -23,9 +23,8 @@ func TestSARIFEvidence(t *testing.T) {
 	}
 }
 
-func TestSARIFSeverityFallsBackToRuleDefaultLevel(t *testing.T) {
+func TestOpenGrepSARIFSeverityFallsBackToRuleDefaultLevel(t *testing.T) {
 	t.Parallel()
-	// OpenGrep's shape: results have no level, rules carry defaultConfiguration.level.
 	data := []byte(`{"version":"2.1.0","runs":[{"tool":{"driver":{"rules":[
 		{"id":"go-md5","defaultConfiguration":{"level":"warning"}},
 		{"id":"ruby-eval","defaultConfiguration":{"level":"error"}},

@@ -24,11 +24,10 @@ import (
 const (
 	manifestName = "manifest.json"
 	maxEntry     = 1 << 20
-	// maxArchive bounds the whole decompressed tar stream, including entries
-	// extract skips, which tar still inflates to reach the next header.
-	maxArchive = 64 << 20
-	// A temporary directory this old cannot belong to a running install.
-	staleAfter = time.Hour
+	// tar inflates skipped entries to reach the next header, so this bounds the
+	// whole decompressed stream, not only the files extract keeps.
+	maxDecompressed = 64 << 20
+	staleAfter      = time.Hour
 )
 
 // Manifest records what an installed pack directory holds. Install writes it
@@ -45,7 +44,6 @@ type Manifest struct {
 // Dir is where the pack is installed under Pug's home.
 func Dir(home, name string) string { return filepath.Join(home, "rules", name) }
 
-// ReadManifest returns the installed pack's manifest.
 func ReadManifest(home string, p Pack) (Manifest, error) {
 	data, err := os.ReadFile(filepath.Join(Dir(home, p.Name), manifestName))
 	if err != nil {
@@ -64,7 +62,6 @@ func Installed(home string, p Pack) bool {
 	return err == nil && m.Commit == p.Commit && m.SHA256 == p.SHA256
 }
 
-// Profiles lists the profile names an installed pack provides.
 func Profiles(home string, p Pack) []string {
 	if p.ProfilesDir == "" {
 		return []string{}
@@ -130,8 +127,6 @@ func Install(ctx context.Context, client *http.Client, home string, p Pack) (Man
 	if err := os.WriteFile(filepath.Join(tree, manifestName), append(data, '\n'), 0o600); err != nil {
 		return Manifest{}, false, err
 	}
-	// Move any previous install aside inside work, so the deferred removal
-	// deletes it and an interrupted swap leaves only a stale temp directory.
 	destination := Dir(home, p.Name)
 	if err := os.Rename(destination, filepath.Join(work, "previous")); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return Manifest{}, false, err
@@ -170,8 +165,6 @@ const (
 	plainEntry
 )
 
-// classify decides what install keeps from a pack-relative archive path.
-// Test fixtures (*.test.yaml, *.fixed.*) look like rules and break a config.
 func classify(p Pack, rel string) entryKind {
 	if rel == "LICENSE" {
 		return plainEntry
@@ -182,14 +175,13 @@ func classify(p Pack, rel string) entryKind {
 	top, _, _ := strings.Cut(rel, "/")
 	base := path.Base(rel)
 	ext := path.Ext(rel)
+	// Upstream test fixtures (*.test.yaml, *.fixed.*) look like rules and break a config.
 	if slices.Contains(p.RuleDirs, top) && (ext == ".yml" || ext == ".yaml") && !strings.Contains(base, ".test.") && !strings.Contains(base, ".fixed.") {
 		return ruleEntry
 	}
 	return skipEntry
 }
 
-// extract copies kept regular files into tree through os.Root, so no archive
-// path, link, or permission can place a file outside it.
 func extract(archive *os.File, tree string, p Pack) (int, error) {
 	if _, err := archive.Seek(0, io.SeekStart); err != nil {
 		return 0, err
@@ -204,7 +196,7 @@ func extract(archive *os.File, tree string, p Pack) (int, error) {
 		return 0, err
 	}
 	defer root.Close()
-	reader := tar.NewReader(&budgetReader{r: gz, left: maxArchive})
+	reader := tar.NewReader(&failAtLimitReader{r: gz, left: maxDecompressed})
 	count := 0
 	for {
 		header, err := reader.Next()
@@ -259,16 +251,14 @@ func extract(archive *os.File, tree string, p Pack) (int, error) {
 	return count, nil
 }
 
-var errArchiveTooLarge = fmt.Errorf("pack archive expands beyond %d bytes", maxArchive)
+var errArchiveTooLarge = fmt.Errorf("pack archive expands beyond %d bytes", maxDecompressed)
 
-// budgetReader fails rather than reporting EOF once its budget is spent, so an
-// oversized archive is an error instead of a silently truncated pack.
-type budgetReader struct {
+type failAtLimitReader struct {
 	r    io.Reader
 	left int64
 }
 
-func (b *budgetReader) Read(p []byte) (int, error) {
+func (b *failAtLimitReader) Read(p []byte) (int, error) {
 	if b.left <= 0 {
 		return 0, errArchiveTooLarge
 	}

@@ -191,7 +191,7 @@ func (c *composer) addPack(source Source, spec string) error {
 		}
 		return found, nil
 	}
-	profile := source.Spec.profile()
+	profile := source.Spec.effectiveProfile()
 	if profile == "" {
 		for _, dir := range pack.RuleDirs {
 			err := fs.WalkDir(source.Files, dir, func(name string, entry fs.DirEntry, err error) error {
@@ -260,8 +260,6 @@ func (c *composer) addEntry(entry string, addFile func(string, func(string) bool
 	return false, nil
 }
 
-// qualify is "<pack>.<dir>.<file stem>", dotted, with ".<id>" appended when
-// the rule ID differs from the file stem.
 func qualify(pack, name, id string) string {
 	stem := strings.TrimSuffix(name, path.Ext(name))
 	qualified := pack + "." + strings.ReplaceAll(stem, "/", ".")

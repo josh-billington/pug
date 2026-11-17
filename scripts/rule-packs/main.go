@@ -123,8 +123,6 @@ func get(ctx context.Context, client *http.Client, url, accept string) ([]byte, 
 	return body, nil
 }
 
-// uncoveredDirs names top-level directories holding YAML that the pack's
-// rule_dirs leave out, so a new upstream language folder is not missed.
 func uncoveredDirs(tarball []byte, p rules.Pack) ([]string, error) {
 	gz, err := gzip.NewReader(bytes.NewReader(tarball))
 	if err != nil {

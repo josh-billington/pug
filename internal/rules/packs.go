@@ -40,8 +40,7 @@ var (
 	hex64    = regexp.MustCompile(`^[0-9a-f]{64}$`)
 )
 
-// ParsePacks decodes and validates a registry. The pin bumper uses it on
-// packs.json before rewriting the file.
+// ParsePacks decodes and validates a registry.
 func ParsePacks(data []byte) ([]Pack, error) {
 	var packs []Pack
 	if err := json.Unmarshal(data, &packs); err != nil {
@@ -75,7 +74,6 @@ func (p Pack) Pinned() bool {
 	return hex40.MatchString(p.Commit) && hex64.MatchString(p.SHA256)
 }
 
-// Lookup returns the registry entry for name.
 func Lookup(name string) (Pack, bool) {
 	i := slices.IndexFunc(Packs, func(p Pack) bool { return p.Name == name })
 	if i < 0 {
@@ -84,7 +82,6 @@ func Lookup(name string) (Pack, bool) {
 	return Packs[i], true
 }
 
-// Names lists the registry's pack names.
 func Names() []string {
 	names := make([]string, len(Packs))
 	for i, p := range Packs {

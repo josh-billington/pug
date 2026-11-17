@@ -55,18 +55,17 @@ func digest(data []byte) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// archiveServer answers every request with the archive, counting requests.
-type archiveServer struct {
+type archiveTransport struct {
 	archive  []byte
 	requests atomic.Int64
 }
 
-func (s *archiveServer) RoundTrip(*http.Request) (*http.Response, error) {
+func (s *archiveTransport) RoundTrip(*http.Request) (*http.Response, error) {
 	s.requests.Add(1)
 	return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewReader(s.archive)), Header: http.Header{}}, nil
 }
 
-func (s *archiveServer) client() *http.Client { return &http.Client{Transport: s} }
+func (s *archiveTransport) client() *http.Client { return &http.Client{Transport: s} }
 
 func fixturePack(archive []byte) Pack {
 	return Pack{
@@ -99,7 +98,7 @@ func installedFiles(t *testing.T, dir string) []string {
 
 func TestInstallKeepsOnlyRulesProfilesAndLicense(t *testing.T) {
 	t.Parallel()
-	server := &archiveServer{archive: tarball(t,
+	server := &archiveTransport{archive: tarball(t,
 		tarEntry{name: "rules-abc/LICENSE", body: "MIT"},
 		tarEntry{name: "rules-abc/README.md", body: "readme"},
 		tarEntry{name: "rules-abc/configs/default.list", body: "python/eval.yaml:eval\n"},
@@ -136,11 +135,11 @@ func TestInstallKeepsOnlyRulesProfilesAndLicense(t *testing.T) {
 func TestInstallReplacesAnOlderPin(t *testing.T) {
 	t.Parallel()
 	home := t.TempDir()
-	old := &archiveServer{archive: tarball(t, tarEntry{name: "r/python/old.yaml", body: ruleYAML})}
+	old := &archiveTransport{archive: tarball(t, tarEntry{name: "r/python/old.yaml", body: ruleYAML})}
 	if _, _, err := Install(t.Context(), old.client(), home, fixturePack(old.archive)); err != nil {
 		t.Fatal(err)
 	}
-	current := &archiveServer{archive: tarball(t, tarEntry{name: "r/python/new.yaml", body: ruleYAML})}
+	current := &archiveTransport{archive: tarball(t, tarEntry{name: "r/python/new.yaml", body: ruleYAML})}
 	pack := fixturePack(current.archive)
 	pack.Commit = strings.Repeat("b", 40)
 	if Installed(home, pack) {
@@ -172,7 +171,7 @@ func TestInstallRefusesBadArchives(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			home := t.TempDir()
-			server := &archiveServer{archive: tt.archive}
+			server := &archiveTransport{archive: tt.archive}
 			pack := fixturePack(tt.archive)
 			if tt.digest != "" {
 				pack.SHA256 = tt.digest
@@ -205,7 +204,7 @@ func TestInstallRemovesOnlyStaleTemporaryDirectories(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	server := &archiveServer{archive: tarball(t, tarEntry{name: "r/python/eval.yaml", body: ruleYAML})}
+	server := &archiveTransport{archive: tarball(t, tarEntry{name: "r/python/eval.yaml", body: ruleYAML})}
 	if _, _, err := Install(t.Context(), server.client(), home, fixturePack(server.archive)); err != nil {
 		t.Fatal(err)
 	}
@@ -224,7 +223,7 @@ func TestInstallBoundsSkippedEntryExpansion(t *testing.T) {
 	var archive bytes.Buffer
 	compressed := gzip.NewWriter(&archive)
 	writer := tar.NewWriter(compressed)
-	const skipped = maxArchive + 1<<20
+	const skipped = maxDecompressed + 1<<20
 	if err := writer.WriteHeader(&tar.Header{Name: "r/ignored.bin", Mode: 0o600, Size: skipped}); err != nil {
 		t.Fatal(err)
 	}
@@ -246,7 +245,7 @@ func TestInstallBoundsSkippedEntryExpansion(t *testing.T) {
 	if err := compressed.Close(); err != nil {
 		t.Fatal(err)
 	}
-	server := &archiveServer{archive: archive.Bytes()}
+	server := &archiveTransport{archive: archive.Bytes()}
 	_, _, err := Install(t.Context(), server.client(), t.TempDir(), fixturePack(server.archive))
 	if !errors.Is(err, errArchiveTooLarge) {
 		t.Fatalf("error = %v, want the archive expansion limit", err)

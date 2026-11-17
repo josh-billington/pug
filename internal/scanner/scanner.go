@@ -38,8 +38,6 @@ type notApplicable string
 
 func (n notApplicable) Error() string { return string(n) }
 
-// partialCoverage means the scanner finished and its findings are valid, but
-// it could not fully inspect some targets. The check completes with a reason.
 type partialCoverage string
 
 func (p partialCoverage) Error() string { return string(p) }
@@ -62,8 +60,6 @@ type Options struct {
 	missingPacks []string
 }
 
-// resolveRules composes the source rules once, unless a selected pack is not
-// installed, in which case the source check is skipped.
 func (o *Options) resolveRules() error {
 	specs := o.Rules
 	if len(specs) == 0 {
