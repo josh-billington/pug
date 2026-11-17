@@ -110,6 +110,23 @@ go test ./internal/setup ./internal/tools ./internal/cli
 
 No boat.dev VM was created. Automatic installation was not run on amd64 or Windows. The [VPS guide](vps.md) describes manual SSH steps.
 
+## Rule pack verification
+
+These runs on November 16, 2026 used OpenGrep 1.33.1 and the pins in [`internal/rules/packs.json`](../internal/rules/packs.json):
+
+| Check | Observed result |
+| --- | --- |
+| `pug rules install opengrep amplify aikido` with an empty temporary `PUG_HOME` | Installed 1933, 1907, and 2 rule files. A second `install amplify` reported the pack as already installed. |
+| Two `--rules amplify:security-audit` scans of the same fixture, then `pug diff` | Both completed with 79 findings. The comparison had no `new` or `absent` findings. |
+| A fixture with an unparseable Ruby file | The `source` check completed and its reason reported partial parsing. |
+
+The unit and integration tests cover profile resolution, ID qualification, alias expansion, archive limits, path escapes, partial parsing, invalid rules, and rule changes in `pug diff`. These tests passed with:
+
+```sh
+go test ./internal/rules ./internal/report ./internal/cli
+go test -tags=integration ./internal/scanner -run 'TestRealOpenGrepParseProblems|TestRealRulePackScan' -count=1
+```
+
 ## Untested capabilities
 
 The runs did not cover a hosted deployment, billing, a live coding-agent workflow, a local model, or an autonomous pentesting agent. Pug does not supply those capabilities.

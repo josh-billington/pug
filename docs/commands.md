@@ -22,7 +22,7 @@ pug sandbox --help
 | `pug image NAME@sha256:DIGEST` | Runs Trivy vulnerability and misconfiguration checks. Trivy can fetch the image and database. |
 | `pug app URL --allow-active` | Runs the selected application checks against the target. |
 | `pug diff BEFORE.json AFTER.json` | Compares findings for the same target. |
-| `pug rules list` | Lists rule packs as JSON with their pins, licences, profiles, and install state. |
+| `pug rules list` | Lists rule packs as JSON with their pins, licenses, profiles, and install state. |
 | `pug rules install PACK...` | Downloads, verifies, and installs pinned rule packs. |
 | `pug sandbox [FLAGS] -- COMMAND [ARGS...]` | Runs a command and an optional application in an offline container. |
 | `pug help [COMMAND]` | Prints help for Pug or a command. `--help` has the same purpose. |
@@ -109,7 +109,7 @@ Repository defaults are `source,secrets,dependencies,actions,infra`. Application
 
 ### Rule packs
 
-| Pack | Upstream | Licence | Profiles |
+| Pack | Upstream | License | Profiles |
 | --- | --- | --- | --- |
 | `opengrep` | `opengrep/opengrep-rules` | LGPL-2.1 with Commons Clause | None. The pack selects every rule. |
 | `amplify` | `amplify-security/opengrep-rules` | LGPL-2.1 with Commons Clause | `default` (the default), `security-audit`, `secrets`, `amplify` |
@@ -117,7 +117,7 @@ Repository defaults are `source,secrets,dependencies,actions,infra`. Application
 
 The pinned commits and tarball digests are in [`internal/rules/packs.json`](../internal/rules/packs.json). `make rule-packs` moves every pin to the upstream default branch and recomputes the digests. Pug does not ship pack rules in its binary.
 
-`pug rules install` downloads the pinned tarball to a temporary directory under `PUG_HOME/rules`, verifies its SHA-256, and keeps only the rule files, the profile lists, and the licence. It drops test fixtures (`*.test.yaml`, `*.fixed.*`) and YAML without a top-level `rules` list. The pack replaces any earlier install at `PUG_HOME/rules/PACK`. Running the command again for an installed pin does nothing. `--timeout` (default `5m`) limits each pack.
+`pug rules install` downloads the pinned tarball to a temporary directory under `PUG_HOME/rules`, verifies its SHA-256, and keeps only the rule files, the profile lists, and the license. It drops test fixtures (`*.test.yaml`, `*.fixed.*`) and YAML without a top-level `rules` list. The decompressed archive is limited to 64 MiB and each kept file to 1 MiB. The pack replaces any earlier install at `PUG_HOME/rules/PACK`. Running the command again for an installed pin does nothing. `--timeout` (default `5m`) limits each pack.
 
 Pug renames pack rules so their IDs stay the same across profiles and do not collide. A pack rule ID is the pack name, the rule file's path with dots for slashes and without its extension, and the upstream ID when it differs from the file name. For example, `eval-detected` in `python/lang/security/audit/eval-detected.yaml` becomes `amplify.python.lang.security.audit.eval-detected`, and `marshal-usage` in `python/lang/security/audit/marshal.yaml` becomes `amplify.python.lang.security.audit.marshal.marshal-usage`. Starter and local file rules keep their IDs. Pug combines all selected rules into one config for each scan. A rule that several values select runs once.
 
@@ -198,9 +198,9 @@ Reports use the schema in [`internal/report/report.go`](../internal/report/repor
 | `not_tested` | Requested checks that did not complete and categories that were not requested. |
 | `limitations` | Limits that affect the interpretation of the results. |
 
-Check statuses are `completed`, `failed`, `unavailable`, or `skipped`. A `source` check completes when OpenGrep could only partly parse some target files, such as templates or files with syntax errors. Its reason counts the warnings. An invalid rule fails the check. Successful report parsing records `evidence_sha256`, a SHA-256 hash of the scanner report.
+Check statuses are `completed`, `failed`, `unavailable`, or `skipped`. A `source` check completes when OpenGrep could only partly parse some target files, such as templates or files with syntax errors. Its reason counts the warnings. An invalid rule fails the check. Successful report parsing records `evidence_sha256`, a SHA-256 hash of the scanner report. The sandbox hashes command stdout instead. Neither hash authenticates its source.
 
-The `source` check also records `rules`: the `--rules` values, the commit of each pack, the rule count, any `unresolved` profile entries, and `sha256`, the hash of the combined rules config. The sandbox hashes command stdout instead. Neither hash authenticates its source.
+The `source` check also records `rules`. It holds the `--rules` values, the commit of each pack, the rule count, any `unresolved` profile entries, and `sha256`, the hash of the combined rules config.
 
 Pug deletes temporary scanner reports after each check. Recorded commands can contain paths to those deleted reports. Saved reports use atomic replacement and mode `0600` on POSIX filesystems. Imported reports have a 32 MiB limit and validated finding fingerprints.
 

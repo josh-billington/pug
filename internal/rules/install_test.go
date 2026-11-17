@@ -97,7 +97,7 @@ func installedFiles(t *testing.T, dir string) []string {
 	return files
 }
 
-func TestInstallKeepsOnlyRulesProfilesAndLicence(t *testing.T) {
+func TestInstallKeepsOnlyRulesProfilesAndLicense(t *testing.T) {
 	t.Parallel()
 	server := &archiveServer{archive: tarball(t,
 		tarEntry{name: "rules-abc/LICENSE", body: "MIT"},

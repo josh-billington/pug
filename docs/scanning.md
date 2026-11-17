@@ -38,9 +38,9 @@ The `source` check runs four starter rules by default. Rule packs add maintained
 	pug scan /path/to/repo --checks source --rules amplify:security-audit
 	```
 
-`pug rules list` shows each pack, its pinned commit, its licence, its profiles, and whether it is installed. A pack without a profile in `--rules` uses its default profile, or every rule if it has no profiles. Pass `--rules` more than once, or separate values with commas, to combine packs, profiles, the starter rules, and local rule files. See [Rule packs](commands.md#rule-packs) for the available packs.
+`pug rules list` shows each pack, its pinned commit, its license, its profiles, and whether it is installed. A pack without a profile in `--rules` uses its default profile, or every rule if it has no profiles. Pass `--rules` more than once, or separate values with commas, to combine packs, profiles, the starter rules, and local rule files. See [Rule packs](commands.md#rule-packs) for the available packs.
 
-The `opengrep` and `amplify` packs use LGPL-2.1 with the Commons Clause, which restricts selling the rules. Pug does not ship them. It fetches them from upstream when you run `pug rules install`. Review the licence before you use a pack.
+The `opengrep` and `amplify` packs use LGPL-2.1 with the Commons Clause, which restricts selling the rules. Pug does not ship them. It fetches them from upstream when you run `pug rules install`. Review the license before you use a pack.
 
 If a selected pack is not installed, the `source` check is skipped with the install command as its reason, and the report is incomplete.
 

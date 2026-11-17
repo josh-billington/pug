@@ -12,6 +12,8 @@ Repository scans inspect the current working tree. They do not freeze the checko
 
 The bundled OpenGrep rules detect a small set of suspicious patterns and can produce false positives. Actionlint checks workflow syntax and metadata. Neither tool provides a complete security assessment.
 
+Rule packs add upstream OpenGrep rules that Pug does not review. They can miss issues or produce false positives. Pug checks each pack's SHA-256 digest and keeps only regular rule, profile, and license files inside the pack directory. It does not extract links. A matching digest confirms the downloaded bytes. Pug still trusts the upstream rules.
+
 ## Tool installation
 
 `pug setup` installs missing scanners for the current user. Binary downloads use upstream release URLs and SHA-256 digests embedded in Pug. Pug verifies each download before running it or replacing an installed binary. From an archive, Pug copies only the executable. It does not extract archive paths or links.

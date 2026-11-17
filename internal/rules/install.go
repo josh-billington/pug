@@ -84,7 +84,7 @@ func Profiles(home string, p Pack) []string {
 }
 
 // Install downloads the pinned tarball, verifies its digest, and replaces the
-// pack directory with only its rule files, profiles, and licence. It does
+// pack directory with only its rule files, profiles, and license. It does
 // nothing when the pinned commit is already installed, and reports whether
 // it changed anything.
 func Install(ctx context.Context, client *http.Client, home string, p Pack) (Manifest, bool, error) {
