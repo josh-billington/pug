@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -233,5 +234,145 @@ func TestParseRulesRejectsRulesInLaterDocuments(t *testing.T) {
 	}
 	if _, err := parseRules([]byte("kind: Pod\n---\nkind: Service\n")); !errors.Is(err, errNotRules) {
 		t.Fatalf("error = %v, want multi-document non-rule YAML skipped", err)
+	}
+}
+
+func TestComposeDirectoryFiltersFilesBeforeResolvingProfiles(t *testing.T) {
+	t.Parallel()
+	dir := filepath.Join(t.TempDir(), "mypack")
+	valid := map[string]string{
+		"team/python/no-eval.yaml": string(ruleFile("no-eval").Data),
+		"root.yml":                 string(ruleFile("root").Data),
+	}
+	skipped := map[string]string{
+		".git/hidden.yml":                "rules: [{id: no-eval}, {id: no-eval}]\n",
+		".private/hidden.yml":            "rules: [{id: no-eval}, {id: no-eval}]\n",
+		"team/.private/hidden.yml":       "rules: [{id: no-eval}, {id: no-eval}]\n",
+		"team/python/no-eval.test.yml":   "rules: [{id: no-eval}, {id: no-eval}]\n",
+		"team/python/no-eval.test.yaml":  "rules: [{id: no-eval}, {id: no-eval}]\n",
+		"team/python/no-eval.fixed.yaml": "rules: [{id: no-eval}, {id: no-eval}]\n",
+		"metadata.yaml":                  "kind: Pod\n",
+		"README.md":                      "readme\n",
+	}
+	write := func(name, body string) {
+		t.Helper()
+		file := filepath.Join(dir, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(file, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for name, body := range valid {
+		write(name, body)
+	}
+	for name, body := range skipped {
+		write(name, body)
+	}
+	outside := filepath.Join(t.TempDir(), "outside.yaml")
+	if err := os.WriteFile(outside, ruleFile("outside").Data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, link := range []struct {
+		name   string
+		target string
+	}{
+		{name: "link.yaml", target: outside},
+		{name: "inside.yaml", target: filepath.Join(dir, "root.yml")},
+		{name: "linked-dir", target: filepath.Dir(outside)},
+	} {
+		if err := os.Symlink(link.target, filepath.Join(dir, link.name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	source := Source{Spec: Spec{Kind: PathSpec, Path: dir}, Name: "mypack", Directory: dir}
+	r, err := Compose([]Source{source})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := ids(t, r); !slices.Equal(got, []string{"mypack.root", "mypack.team.python.no-eval"}) {
+		t.Fatalf("filtered IDs: %v", got)
+	}
+	entries := []string{"team/python/no-eval.yml:no-eval"}
+	for name := range skipped {
+		entries = append(entries, name+":no-eval")
+	}
+	entries = append(entries, "../outside.yaml:outside", "link.yaml:outside", "inside.yaml:root", "linked-dir/outside.yaml:outside")
+	write("configs/default.list", strings.Join(entries, "\n")+"\n")
+	r, err = Compose([]Source{source})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := ids(t, r); !slices.Equal(got, []string{"mypack.team.python.no-eval"}) || len(r.Provenance.Unresolved) != len(entries)-1 {
+		t.Fatalf("profile filtering: %v, unresolved %v", got, r.Provenance.Unresolved)
+	}
+}
+
+func TestResolveLocalDirectoryAndProfile(t *testing.T) {
+	t.Parallel()
+	dir := filepath.Join(t.TempDir(), "mypack")
+	if err := os.MkdirAll(filepath.Join(dir, "configs"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "eval.yaml"), ruleFile("eval").Data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "configs", "audit.list"), []byte("eval.yaml:eval\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	specs, err := ParseSpecs([]string{dir + ":audit"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sources, missing, err := Resolve(specs)
+	if err != nil || len(missing) != 0 {
+		t.Fatalf("resolve: %v, %v", missing, err)
+	}
+	r, err := Compose(sources)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(ids(t, r), []string{"mypack.eval"}) || !slices.Equal(r.Provenance.Specs, []string{dir + ":audit"}) || r.Provenance.Packs != nil {
+		t.Fatalf("directory pack: %+v", r.Provenance)
+	}
+	if got, err := Profiles(dir); err != nil || !slices.Equal(got, []string{"audit"}) {
+		t.Fatalf("profiles = %v, %v", got, err)
+	}
+}
+
+func TestComposeSkipsProfileSymlinks(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, "configs"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "eval.yaml"), ruleFile("eval").Data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	outside := filepath.Join(t.TempDir(), "default.list")
+	if err := os.WriteFile(outside, []byte("../outside.yaml:outside\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(dir, "configs", "default.list")); err != nil {
+		t.Fatal(err)
+	}
+	source := Source{Spec: Spec{Kind: PathSpec, Path: dir}, Name: "mypack", Directory: dir}
+	r, err := Compose([]Source{source})
+	if err != nil || !slices.Equal(ids(t, r), []string{"mypack.eval"}) {
+		t.Fatalf("symlink profile affected default selection: %v", err)
+	}
+	source.Spec.Profile = "default"
+	if _, err := Compose([]Source{source}); err == nil || !strings.Contains(err.Error(), "has no profile") {
+		t.Fatalf("symlink profile accepted: %v", err)
+	}
+}
+
+func TestComposeBoundsRulesFiles(t *testing.T) {
+	t.Parallel()
+	file := &fstest.MapFile{Data: append(ruleFile("eval").Data, []byte("#"+strings.Repeat("x", maxRulesFile))...)}
+	_, err := Compose([]Source{{Spec: Spec{Kind: PackSpec, Name: "mypack"}, Name: "mypack", Files: fstest.MapFS{"large.yml": file}}})
+	if err == nil || !strings.Contains(err.Error(), "16 MiB") {
+		t.Fatalf("oversized rules accepted: %v", err)
 	}
 }

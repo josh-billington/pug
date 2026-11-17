@@ -116,7 +116,7 @@ func TestInstallRemovesOnlyStaleWorkspaces(t *testing.T) {
 	parent := filepath.Join(home, "rules")
 	stale := filepath.Join(parent, ".tmp-fixture-crashed")
 	fresh := filepath.Join(parent, ".tmp-fixture-running")
-	other := filepath.Join(parent, ".tmp-other-crashed")
+	other := filepath.Join(parent, "unrelated")
 	for _, dir := range []string{stale, fresh, other} {
 		if err := os.MkdirAll(dir, 0o700); err != nil {
 			t.Fatal(err)

@@ -48,7 +48,12 @@ func ParseSpec(value string) (Spec, error) {
 	if value == starterName {
 		return Spec{Kind: StarterSpec}, nil
 	}
-	name, profile, hasProfile := strings.Cut(value, ":")
+	name, profile := value, ""
+	profileAt := strings.LastIndexByte(value, ':')
+	hasProfile := profileAt >= len(filepath.VolumeName(value))
+	if hasProfile {
+		name, profile = value[:profileAt], value[profileAt+1:]
+	}
 	if hasProfile && !profileName.MatchString(profile) {
 		return Spec{}, fmt.Errorf("invalid profile name %q", profile)
 	}

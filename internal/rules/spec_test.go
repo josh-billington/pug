@@ -15,6 +15,8 @@ func TestParseSpecs(t *testing.T) {
 	}{
 		{name: "default is starter", values: nil, want: []string{"starter"}, kinds: []SpecKind{StarterSpec}},
 		{name: "pack uses its default profile", values: []string{"amplify"}, want: []string{"amplify"}, kinds: []SpecKind{PackSpec}},
+		{name: "unknown pack is resolved at scan time", values: []string{"notinstalled"}, want: []string{"notinstalled"}, kinds: []SpecKind{PackSpec}},
+		{name: "directory profile", values: []string{"./team:audit"}, want: []string{"./team:audit"}, kinds: []SpecKind{PathSpec}},
 		{name: "pack without profiles", values: []string{"opengrep"}, want: []string{"opengrep"}, kinds: []SpecKind{PackSpec}},
 		{name: "explicit profile", values: []string{"amplify:security-audit"}, want: []string{"amplify:security-audit"}, kinds: []SpecKind{PackSpec}},
 		{name: "yaml file", values: []string{"team.yaml"}, want: []string{"team.yaml"}, kinds: []SpecKind{PathSpec}},

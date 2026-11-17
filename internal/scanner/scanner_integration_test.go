@@ -203,6 +203,32 @@ func TestRealRulePackScan(t *testing.T) {
 	if err != nil || len(diff.New) != 0 || len(diff.Absent) != 0 || len(diff.Unverified) != 0 || len(diff.Persistent) != 2 {
 		t.Fatalf("rescan with the same pack was not stable: %+v, %v", diff, err)
 	}
+	fixtureFile(t, upstream, "python/lang/eval.yaml", strings.ReplaceAll(strings.ReplaceAll(files["python/lang/eval.yaml"], "pattern: eval(...)", "pattern: never_eval(...)"), "pattern: exec(...)", "pattern: never_exec(...)"))
+	fixtureGit(t, upstream, "add", "--", ".")
+	fixtureGit(t, upstream, "commit", "--no-gpg-sign", "-m", "Change rules")
+	updated := fixtureGit(t, upstream, "rev-parse", "HEAD")
+	if installed, err := rules.Install(t.Context(), runner.Local{}, home, spec); err != nil || installed != updated {
+		t.Fatalf("update: %s, %v", installed, err)
+	}
+	after := scan()
+	diff, err = report.Compare(before, after)
+	if err != nil || !after.Complete || len(diff.Absent) != 0 || len(diff.Unverified) != 2 {
+		t.Fatalf("rule update looked like a fix: %+v, %v", diff, err)
+	}
+	for _, pin := range []string{commit, commit[:12]} {
+		pinned, err := rules.ParseInstallSpec("file://" + upstream + "@" + pin)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if installed, err := rules.Install(t.Context(), runner.Local{}, home, pinned); err != nil || installed != commit {
+			t.Fatalf("pin %s: %s, %v", pin, installed, err)
+		}
+	}
+	diff, err = report.Compare(before, scan())
+	if err != nil || len(diff.Persistent) != 2 || len(diff.New) != 0 || len(diff.Absent) != 0 {
+		t.Fatalf("pinned rescan was unstable: %+v, %v", diff, err)
+	}
+
 }
 
 func TestRealApplicationScanners(t *testing.T) {

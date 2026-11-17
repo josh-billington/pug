@@ -23,10 +23,10 @@ func Install(ctx context.Context, executor runner.Executor, home string, spec In
 	if err := os.MkdirAll(parent, 0o700); err != nil {
 		return "", fmt.Errorf("create rules directory: %w", err)
 	}
-	if err := removeStale(parent, spec.Name); err != nil {
+	if err := removeStale(parent); err != nil {
 		return "", err
 	}
-	work, err := os.MkdirTemp(parent, ".tmp-"+spec.Name+"-")
+	work, err := os.MkdirTemp(parent, ".tmp-")
 	if err != nil {
 		return "", fmt.Errorf("create install workspace: %w", err)
 	}
@@ -114,13 +114,13 @@ func runGit(ctx context.Context, executor runner.Executor, dir string, args []st
 	return strings.TrimSpace(string(result.Stdout)), nil
 }
 
-func removeStale(parent, name string) error {
+func removeStale(parent string) error {
 	entries, err := os.ReadDir(parent)
 	if err != nil {
 		return fmt.Errorf("read install workspaces: %w", err)
 	}
 	for _, entry := range entries {
-		if !strings.HasPrefix(entry.Name(), ".tmp-"+name+"-") {
+		if !strings.HasPrefix(entry.Name(), ".tmp-") {
 			continue
 		}
 		info, err := entry.Info()
@@ -140,18 +140,5 @@ func Profiles(dir string) ([]string, error) {
 		return nil, fmt.Errorf("open rule pack: %w", err)
 	}
 	defer root.Close()
-	entries, err := fs.ReadDir(root.FS(), "configs")
-	if errors.Is(err, fs.ErrNotExist) {
-		return []string{}, nil
-	}
-	if err != nil {
-		return nil, fmt.Errorf("read rule profiles: %w", err)
-	}
-	profiles := []string{}
-	for _, entry := range entries {
-		if name, ok := strings.CutSuffix(entry.Name(), ".list"); ok && entry.Type().IsRegular() && profileName.MatchString(name) {
-			profiles = append(profiles, name)
-		}
-	}
-	return profiles, nil
+	return profileNames(root.FS())
 }

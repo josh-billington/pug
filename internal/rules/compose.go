@@ -102,12 +102,6 @@ func Resolve(specs []Spec) ([]Source, []string, error) {
 	return sources, missing, nil
 }
 
-// Compose merges the sources' rules into one config. Pack rules get IDs
-// qualified by pack and file path, so a rule keeps one ID whichever profile
-// or spec selected it, and no two pack rules share an ID. Starter and file
-// rules keep their own IDs. Rules are ordered by ID, so the config depends
-// only on which rules were selected. Two different rules with one ID are an
-// error; the same rule selected twice is kept once.
 func Compose(sources []Source) (Ruleset, error) {
 	c := composer{rules: map[string]*yaml.Node{}, origin: map[string]string{}}
 	c.provenance.Specs = []string{}
@@ -126,10 +120,12 @@ func Compose(sources []Source) (Ruleset, error) {
 			}
 			continue
 		}
-		if c.provenance.Packs == nil {
-			c.provenance.Packs = map[string]string{}
+		if source.Commit != "" {
+			if c.provenance.Packs == nil {
+				c.provenance.Packs = map[string]string{}
+			}
+			c.provenance.Packs[source.Name] = source.Commit
 		}
-		c.provenance.Packs[source.Name] = source.Commit
 		if err := c.addPack(source, spec); err != nil {
 			return Ruleset{}, err
 		}
@@ -196,14 +192,47 @@ func (c *composer) addPack(source Source, spec string) error {
 		defer root.Close()
 		source.Files = root.FS()
 	}
+	allowed := map[string]bool{}
+	err := fs.WalkDir(source.Files, ".", func(name string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			if name != "." && strings.HasPrefix(entry.Name(), ".") {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		if !entry.Type().IsRegular() {
+			return nil
+		}
+		ext := path.Ext(name)
+		fixture := strings.HasSuffix(name, ".test.yml") || strings.HasSuffix(name, ".test.yaml") || strings.Contains(entry.Name(), ".fixed.")
+		if (ext == ".yml" || ext == ".yaml") && !fixture {
+			allowed[name] = true
+		}
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("rules %s: %w", spec, err)
+	}
 	files := map[string][]rule{}
 	addFile := func(name string, keep func(string) bool) (bool, error) {
+		if !allowed[name] {
+			return false, fs.ErrNotExist
+		}
 		rules, ok := files[name]
 		if !ok {
 			var err error
 			rules, err = readRules(source.Files, name)
+			if errors.Is(err, errNotRules) {
+				return false, nil
+			}
 			if err != nil {
 				return false, err
+			}
+			for _, r := range rules {
+				mappingValue(r.node, "id").Value = qualify(source.Name, name, r.id)
 			}
 			files[name] = rules
 		}
@@ -213,50 +242,37 @@ func (c *composer) addPack(source Source, spec string) error {
 				continue
 			}
 			found = true
-			id := qualify(source.Name, name, r.id)
-			mappingValue(r.node, "id").Value = id
-			if err := c.add(id, r.node, spec); err != nil {
+			if err := c.add(qualify(source.Name, name, r.id), r.node, spec); err != nil {
 				return false, err
 			}
 		}
 		return found, nil
 	}
+	profiles, err := profileNames(source.Files)
+	if err != nil {
+		return err
+	}
 	profile := source.Spec.Profile
-	if profile == "" {
-		if info, err := fs.Stat(source.Files, "configs/default.list"); err == nil && info.Mode().IsRegular() {
-			profile = "default"
-		}
+	if profile == "" && slices.Contains(profiles, "default") {
+		profile = "default"
 	}
 	if profile == "" {
-		err := fs.WalkDir(source.Files, ".", func(name string, entry fs.DirEntry, err error) error {
-			if err != nil {
-				return err
+		names := make([]string, 0, len(allowed))
+		for name := range allowed {
+			names = append(names, name)
+		}
+		slices.Sort(names)
+		for _, name := range names {
+			if _, err := addFile(name, func(string) bool { return true }); err != nil {
+				return fmt.Errorf("rules %s: %w", spec, err)
 			}
-			if entry.IsDir() {
-				return nil
-			}
-			if path.Ext(name) != ".yml" && path.Ext(name) != ".yaml" {
-				return nil
-			}
-			_, err = addFile(name, func(string) bool { return true })
-			if errors.Is(err, errNotRules) {
-				return nil
-			}
-			return err
-		})
-		if err != nil {
-			return fmt.Errorf("rules %s: %w", spec, err)
 		}
 		return nil
 	}
-	list, err := fs.ReadFile(source.Files, path.Join("configs", profile+".list"))
-	if errors.Is(err, fs.ErrNotExist) {
-		profiles, _ := fs.Glob(source.Files, "configs/*.list")
-		for i, name := range profiles {
-			profiles[i] = strings.TrimSuffix(path.Base(name), ".list")
-		}
+	if !slices.Contains(profiles, profile) {
 		return fmt.Errorf("rule pack %s has no profile %q; profiles: %s", source.Name, profile, strings.Join(profiles, ", "))
 	}
+	list, err := readFile(source.Files, path.Join("configs", profile+".list"))
 	if err != nil {
 		return fmt.Errorf("rules %s: %w", spec, err)
 	}
@@ -274,7 +290,10 @@ func (c *composer) addPack(source Source, spec string) error {
 			c.provenance.Unresolved = append(c.provenance.Unresolved, spec+" "+entry)
 		}
 	}
-	return lines.Err()
+	if err := lines.Err(); err != nil {
+		return fmt.Errorf("read rules profile %s: %w", spec, err)
+	}
+	return nil
 }
 
 // addEntry adds the rule a "path:id" profile entry names. Profiles list
@@ -309,6 +328,18 @@ func qualify(pack, name, id string) string {
 }
 
 func readRules(files fs.FS, name string) ([]rule, error) {
+	data, err := readFile(files, name)
+	if err != nil {
+		return nil, err
+	}
+	rules, err := parseRules(data)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", name, err)
+	}
+	return rules, nil
+}
+
+func readFile(files fs.FS, name string) ([]byte, error) {
 	info, err := fs.Stat(files, name)
 	if err != nil {
 		return nil, err
@@ -328,9 +359,28 @@ func readRules(files fs.FS, name string) ([]rule, error) {
 	if len(data) > maxRulesFile {
 		return nil, fmt.Errorf("%s exceeds 16 MiB", name)
 	}
-	rules, err := parseRules(data)
+	return data, nil
+}
+
+func profileNames(files fs.FS) ([]string, error) {
+	profiles := []string{}
+	entries, err := fs.ReadDir(files, ".")
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", name, err)
+		return nil, fmt.Errorf("read rule pack: %w", err)
 	}
-	return rules, nil
+	for _, entry := range entries {
+		if entry.Name() != "configs" || !entry.IsDir() {
+			continue
+		}
+		configs, err := fs.ReadDir(files, "configs")
+		if err != nil {
+			return nil, fmt.Errorf("read rule profiles: %w", err)
+		}
+		for _, config := range configs {
+			if name, ok := strings.CutSuffix(config.Name(), ".list"); ok && config.Type().IsRegular() && profileName.MatchString(name) {
+				profiles = append(profiles, name)
+			}
+		}
+	}
+	return profiles, nil
 }

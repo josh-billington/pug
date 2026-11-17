@@ -110,8 +110,8 @@ func TestRulesListAndUninstalledPackScan(t *testing.T) {
 		}
 	}
 	stdout.Reset()
-	code := Execute(t.Context(), []string{"scan", t.TempDir(), "--checks", "source", "--rules", "amplify:security-audit", "--fail-on", "none"}, &stdout, &stderr, "test")
-	if code != 3 || !strings.Contains(stdout.String(), "run: pug rules install amplify") {
+	code := Execute(t.Context(), []string{"scan", t.TempDir(), "--checks", "source", "--rules", "notinstalled", "--fail-on", "none"}, &stdout, &stderr, "test")
+	if code != 3 || !strings.Contains(stdout.String(), "run: pug rules install notinstalled") {
 		t.Fatalf("scan with an uninstalled pack: exit=%d stdout=%s", code, stdout.String())
 	}
 	if _, err := os.Stat(filepath.Join(home, "rules")); !errors.Is(err, os.ErrNotExist) {
@@ -141,5 +141,43 @@ func TestSetupCheckProducesJSONWithoutWriting(t *testing.T) {
 	}
 	if _, err := os.Stat(home); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("check-only created its home: %v", err)
+	}
+}
+
+func TestRulesListDiscoversLocalPacks(t *testing.T) {
+	t.Setenv("PATH", "")
+	home := t.TempDir()
+	t.Setenv("PUG_HOME", home)
+	for _, name := range []string{"team/configs", ".tmp-running", ".hidden"} {
+		if err := os.MkdirAll(filepath.Join(home, "rules", name), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(home, "rules", "team", "configs", "audit.list"), []byte("python/eval.yaml:eval\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	if code := Execute(t.Context(), []string{"rules", "list"}, &stdout, &stderr, "test"); code != 0 {
+		t.Fatalf("list: %d %s", code, stderr.String())
+	}
+	var statuses []packStatus
+	if err := json.Unmarshal(stdout.Bytes(), &statuses); err != nil {
+		t.Fatal(err)
+	}
+	if len(statuses) != 4 {
+		t.Fatalf("list included workspaces: %s", stdout.String())
+	}
+	team := statuses[3]
+	if team.Name != "team" || !team.Installed || team.Commit != "" || len(team.Profiles) != 1 || team.Profiles[0] != "audit" {
+		t.Fatalf("local pack status: %+v", team)
+	}
+}
+
+func TestRulesInstallReportsMissingGit(t *testing.T) {
+	t.Setenv("PATH", "")
+	t.Setenv("PUG_HOME", t.TempDir())
+	var stdout, stderr bytes.Buffer
+	if code := Execute(t.Context(), []string{"rules", "install", "amplify"}, &stdout, &stderr, "test"); code != 1 || !strings.Contains(stderr.String(), "pug doctor") {
+		t.Fatalf("missing git: %d %s", code, stderr.String())
 	}
 }
