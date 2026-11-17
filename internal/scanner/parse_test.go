@@ -22,6 +22,35 @@ func TestSARIFEvidence(t *testing.T) {
 	}
 }
 
+func TestSARIFSeverityFallsBackToRuleDefaultLevel(t *testing.T) {
+	t.Parallel()
+	// OpenGrep's shape: results have no level, rules carry defaultConfiguration.level.
+	data := []byte(`{"version":"2.1.0","runs":[{"tool":{"driver":{"rules":[
+		{"id":"go-md5","defaultConfiguration":{"level":"warning"}},
+		{"id":"ruby-eval","defaultConfiguration":{"level":"error"}},
+		{"id":"info-rule","defaultConfiguration":{"level":"note"}},
+		{"id":"overridden","defaultConfiguration":{"level":"error"}}]}},
+		"results":[
+		{"ruleId":"go-md5","message":{"text":"md5"}},
+		{"ruleId":"ruby-eval","message":{"text":"eval"}},
+		{"ruleId":"info-rule","message":{"text":"info"}},
+		{"ruleId":"overridden","level":"note","message":{"text":"result level wins"}},
+		{"ruleId":"undeclared","message":{"text":"no rule metadata"}}]}]}`)
+	findings, err := parseSARIF(data, "opengrep")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{"go-md5": "medium", "ruby-eval": "high", "info-rule": "low", "overridden": "low", "undeclared": "medium"}
+	for _, finding := range findings {
+		if finding.Severity != want[finding.Rule] {
+			t.Errorf("%s severity = %s, want %s", finding.Rule, finding.Severity, want[finding.Rule])
+		}
+	}
+	if len(findings) != len(want) {
+		t.Fatalf("got %d findings, want %d", len(findings), len(want))
+	}
+}
+
 func TestMalformedReportsNeverPassAsClean(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
