@@ -163,6 +163,12 @@ func TestRealRulePackScan(t *testing.T) {
 	fixtureGit(t, upstream, "add", "--", ".")
 	fixtureGit(t, upstream, "commit", "--no-gpg-sign", "-m", "Add rules")
 	commit := fixtureGit(t, upstream, "rev-parse", "HEAD")
+	fixtureGit(t, upstream, "checkout", "-b", "other")
+	fixtureFile(t, upstream, "README.md", "Rules on another branch\n")
+	fixtureGit(t, upstream, "add", "--", ".")
+	fixtureGit(t, upstream, "commit", "--no-gpg-sign", "-m", "Add branch documentation")
+	otherCommit := fixtureGit(t, upstream, "rev-parse", "HEAD")
+	fixtureGit(t, upstream, "checkout", "main", "--")
 	spec, err := rules.ParseInstallSpec("file://" + upstream)
 	if err != nil {
 		t.Fatal(err)
@@ -215,12 +221,16 @@ func TestRealRulePackScan(t *testing.T) {
 	if err != nil || !after.Complete || len(diff.Absent) != 0 || len(diff.Unverified) != 2 {
 		t.Fatalf("rule update looked like a fix: %+v, %v", diff, err)
 	}
-	for _, pin := range []string{commit, commit[:12]} {
+	for _, pin := range []string{otherCommit[:12], commit, commit[:12]} {
+		expected := commit
+		if pin == otherCommit[:12] {
+			expected = otherCommit
+		}
 		pinned, err := rules.ParseInstallSpec("file://" + upstream + "@" + pin)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if installed, err := rules.Install(t.Context(), runner.Local{}, home, pinned); err != nil || installed != commit {
+		if installed, err := rules.Install(t.Context(), runner.Local{}, home, pinned); err != nil || installed != expected {
 			t.Fatalf("pin %s: %s, %v", pin, installed, err)
 		}
 	}

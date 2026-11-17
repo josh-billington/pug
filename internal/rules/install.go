@@ -41,7 +41,10 @@ func Install(ctx context.Context, executor runner.Executor, home string, spec In
 				return "", err
 			}
 			// Servers generally require a full object ID when fetching an unadvertised commit.
-			if _, err := runGit(ctx, executor, tree, []string{"fetch", "--unshallow", "--no-tags", "--", "origin"}); err != nil {
+			if _, err := runGit(ctx, executor, tree, []string{
+				"fetch", "--unshallow", "--no-tags", "--", "origin",
+				"+refs/heads/*:refs/remotes/origin/*", "+refs/tags/*:refs/tags/*",
+			}); err != nil {
 				return "", err
 			}
 			resolved, err := runGit(ctx, executor, tree, []string{"rev-parse", "--verify", spec.Commit + "^{commit}"})
