@@ -33,6 +33,9 @@ func TestUsageErrors(t *testing.T) {
 		{name: "missing rules file", args: []string{"scan", ".", "--rules", "starter,missing.yml"}},
 		{name: "rules install without packs", args: []string{"rules", "install"}},
 		{name: "rules install unknown pack", args: []string{"rules", "install", "amplify", "made-up"}},
+		{name: "rules list with arguments", args: []string{"rules", "list", "extra"}},
+		{name: "doctor with arguments", args: []string{"doctor", "extra"}},
+		{name: "diff with one report", args: []string{"diff", "before.json"}},
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
