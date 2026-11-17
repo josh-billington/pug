@@ -204,7 +204,10 @@ func buildPlan(options Options, name, temp string) (plan, error) {
 				return p, fmt.Errorf("write bundled rules: %w", err)
 			}
 		}
-		p.invocation.Args = []string{"scan", "--config", config, "--sarif", "--output", artifact, "--disable-version-check", "--strict", options.Target}
+		// OpenGrep prefixes rule IDs with the config's directory relative to the working
+		// directory; running beside the config keeps IDs, and so fingerprints, stable.
+		p.invocation.Dir = filepath.Dir(config)
+		p.invocation.Args = []string{"scan", "--config", filepath.Base(config), "--sarif", "--output", artifact, "--disable-version-check", "--strict", options.Target}
 	case "dependencies":
 		p.invocation.Args = []string{"fs", "--scanners", "vuln", "--format", "sarif", "--output", artifact, options.Target}
 	case "infra":
