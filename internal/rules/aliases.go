@@ -18,7 +18,7 @@ var Aliases = map[string]string{
 
 var (
 	packName = regexp.MustCompile(`^[a-z][a-z0-9._-]*$`)
-	commitID = regexp.MustCompile(`^[0-9a-fA-F]{4,64}$`)
+	commitID = regexp.MustCompile(`^([0-9a-fA-F]{40}|[0-9a-fA-F]{64})$`)
 )
 
 type InstallSpec struct {
@@ -44,7 +44,7 @@ func ParseInstallSpec(value string) (InstallSpec, error) {
 	if i := strings.LastIndexByte(value, '@'); i >= 0 {
 		repo, commit = value[:i], value[i+1:]
 		if !commitID.MatchString(commit) {
-			return InstallSpec{}, fmt.Errorf("invalid commit %q; use a full or abbreviated hex commit", commit)
+			return InstallSpec{}, fmt.Errorf("invalid commit %q; use the full 40- or 64-character commit ID", commit)
 		}
 		commit = strings.ToLower(commit)
 	}

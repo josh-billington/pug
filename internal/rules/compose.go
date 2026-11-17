@@ -65,11 +65,11 @@ func Resolve(specs []Spec) ([]Source, []string, error) {
 				sources = append(sources, Source{Spec: spec, Files: os.DirFS(filepath.Dir(absolute)), File: filepath.Base(absolute)})
 				continue
 			}
-			commit, err := Commit(context.Background(), runner.Local{}, absolute)
+			source, err := directorySource(spec, filepath.Base(absolute), absolute)
 			if err != nil {
 				return nil, nil, err
 			}
-			sources = append(sources, Source{Spec: spec, Name: filepath.Base(absolute), Directory: absolute, Commit: commit})
+			sources = append(sources, source)
 		case PackSpec:
 			if home == "" {
 				var err error
@@ -92,14 +92,22 @@ func Resolve(specs []Spec) ([]Source, []string, error) {
 			if !info.IsDir() {
 				return nil, nil, fmt.Errorf("rule pack %s must be a directory", spec.Name)
 			}
-			commit, err := Commit(context.Background(), runner.Local{}, dir)
+			source, err := directorySource(spec, spec.Name, dir)
 			if err != nil {
 				return nil, nil, err
 			}
-			sources = append(sources, Source{Spec: spec, Name: spec.Name, Directory: dir, Commit: commit})
+			sources = append(sources, source)
 		}
 	}
 	return sources, missing, nil
+}
+
+func directorySource(spec Spec, name, dir string) (Source, error) {
+	commit, err := Commit(context.Background(), runner.Local{}, dir)
+	if err != nil {
+		return Source{}, err
+	}
+	return Source{Spec: spec, Name: name, Directory: dir, Commit: commit}, nil
 }
 
 func Compose(sources []Source) (Ruleset, error) {
@@ -363,23 +371,18 @@ func readFile(files fs.FS, name string) ([]byte, error) {
 }
 
 func profileNames(files fs.FS) ([]string, error) {
-	profiles := []string{}
-	entries, err := fs.ReadDir(files, ".")
+	matches, err := fs.Glob(files, "configs/*.list")
 	if err != nil {
-		return nil, fmt.Errorf("read rule pack: %w", err)
+		return nil, fmt.Errorf("read rule profiles: %w", err)
 	}
-	for _, entry := range entries {
-		if entry.Name() != "configs" || !entry.IsDir() {
-			continue
-		}
-		configs, err := fs.ReadDir(files, "configs")
+	profiles := []string{}
+	for _, match := range matches {
+		info, err := fs.Lstat(files, match)
 		if err != nil {
 			return nil, fmt.Errorf("read rule profiles: %w", err)
 		}
-		for _, config := range configs {
-			if name, ok := strings.CutSuffix(config.Name(), ".list"); ok && config.Type().IsRegular() && profileName.MatchString(name) {
-				profiles = append(profiles, name)
-			}
+		if name := strings.TrimSuffix(path.Base(match), ".list"); info.Mode().IsRegular() && profileName.MatchString(name) {
+			profiles = append(profiles, name)
 		}
 	}
 	return profiles, nil

@@ -37,34 +37,17 @@ func Install(ctx context.Context, executor runner.Executor, home string, spec In
 	}
 	if spec.Commit != "" {
 		if _, err := runGit(ctx, executor, tree, []string{"fetch", "--depth", "1", "--no-tags", "--", "origin", spec.Commit}); err != nil {
-			if len(spec.Commit) >= 40 {
-				return "", err
-			}
-			// Servers generally require a full object ID when fetching an unadvertised commit.
-			if _, err := runGit(ctx, executor, tree, []string{
-				"fetch", "--unshallow", "--no-tags", "--", "origin",
-				"+refs/heads/*:refs/remotes/origin/*", "+refs/tags/*:refs/tags/*",
-			}); err != nil {
-				return "", err
-			}
-			resolved, err := runGit(ctx, executor, tree, []string{"rev-parse", "--verify", spec.Commit + "^{commit}"})
-			if err != nil {
-				return "", err
-			}
-			if _, err := runGit(ctx, executor, tree, []string{"checkout", "--detach", resolved, "--"}); err != nil {
-				return "", err
-			}
-		} else {
-			if _, err := runGit(ctx, executor, tree, []string{"checkout", "--detach", "FETCH_HEAD", "--"}); err != nil {
-				return "", err
-			}
+			return "", err
+		}
+		if _, err := runGit(ctx, executor, tree, []string{"checkout", "--detach", "FETCH_HEAD", "--"}); err != nil {
+			return "", err
 		}
 	}
 	commit, err := runGit(ctx, executor, tree, []string{"rev-parse", "--verify", "HEAD"})
 	if err != nil {
 		return "", err
 	}
-	if spec.Commit != "" && !strings.HasPrefix(commit, spec.Commit) {
+	if spec.Commit != "" && commit != spec.Commit {
 		return "", fmt.Errorf("installed commit %s does not match requested commit %s", commit, spec.Commit)
 	}
 	destination := Dir(home, spec.Name)

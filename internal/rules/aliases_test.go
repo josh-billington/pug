@@ -13,7 +13,7 @@ func TestParseInstallSpec(t *testing.T) {
 		want  InstallSpec
 	}{
 		{name: "alias", value: "amplify", want: InstallSpec{Name: "amplify", URL: Aliases["amplify"]}},
-		{name: "alias with commit", value: "amplify@ABCDEF12", want: InstallSpec{Name: "amplify", URL: Aliases["amplify"], Commit: "abcdef12"}},
+		{name: "alias with commit", value: "amplify@" + strings.Repeat("AB", 20), want: InstallSpec{Name: "amplify", URL: Aliases["amplify"], Commit: strings.Repeat("ab", 20)}},
 		{name: "github shorthand", value: "github.com/trailofbits/semgrep-rules", want: InstallSpec{Name: "semgrep-rules", URL: "https://github.com/trailofbits/semgrep-rules"}},
 		{name: "https", value: "https://example.com/team/my.rules.git@" + strings.Repeat("a", 40), want: InstallSpec{Name: "my.rules", URL: "https://example.com/team/my.rules.git", Commit: strings.Repeat("a", 40)}},
 		{name: "local mirror", value: "file:///tmp/my-rules", want: InstallSpec{Name: "my-rules", URL: "file:///tmp/my-rules"}},
@@ -37,7 +37,7 @@ func TestParseInstallSpec(t *testing.T) {
 func TestParseInstallSpecRejects(t *testing.T) {
 	t.Parallel()
 	for _, value := range []string{
-		"", "-x", "--upload-pack=evil", "unknown", "amplify@", "amplify@-x", "amplify@HEAD", "amplify@abc", "amplify@aabb;echo",
+		"", "-x", "--upload-pack=evil", "unknown", "amplify@", "amplify@-x", "amplify@HEAD", "amplify@abc", "amplify@abcdef123456", "amplify@aabb;echo",
 		"http://example.com/rules", "ssh://example.com/rules", "https://example.com/", "https://example.com/-rules",
 		"https://example.com/starter", "https://example.com/amplify", "https://example.com/aikido.git", "https://-example.com/rules",
 		"https://user:pass@example.com/rules", "https://example.com/rules?q=1", "https://example.com/rules#branch", "file://host/tmp/rules",

@@ -38,7 +38,7 @@ The `source` check runs four starter rules by default. Rule packs add maintained
 	pug scan /path/to/repo --checks source --rules amplify:security-audit
 	```
 
-`pug rules list` shows installed packs with their paths, checkout commits, and profiles, plus the built-in aliases and whether they are installed. Running `pug rules install amplify` again updates it to the remote default branch HEAD. To select a revision, use `pug rules install amplify@COMMIT`, with a full or abbreviated hex commit.
+`pug rules list` shows installed packs with their paths, checkout commits, and profiles, plus the built-in aliases and whether they are installed. Running `pug rules install amplify` again updates it to the remote default branch HEAD. To select a revision, use `pug rules install amplify@COMMIT`, with the full commit ID.
 
 Other OpenGrep rules repositories work too:
 

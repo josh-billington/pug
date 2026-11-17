@@ -221,11 +221,8 @@ func TestRealRulePackScan(t *testing.T) {
 	if err != nil || !after.Complete || len(diff.Absent) != 0 || len(diff.Unverified) != 2 {
 		t.Fatalf("rule update looked like a fix: %+v, %v", diff, err)
 	}
-	for _, pin := range []string{otherCommit[:12], commit, commit[:12]} {
-		expected := commit
-		if pin == otherCommit[:12] {
-			expected = otherCommit
-		}
+	for _, pin := range []string{otherCommit, commit} {
+		expected := pin
 		pinned, err := rules.ParseInstallSpec("file://" + upstream + "@" + pin)
 		if err != nil {
 			t.Fatal(err)

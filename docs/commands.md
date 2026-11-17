@@ -117,7 +117,7 @@ Repository defaults are `source,secrets,dependencies,actions,infra`. Application
 
 `pug rules install` requires Git; `pug doctor` checks whether it is available. Pass an alias, `github.com/owner/repo`, or an HTTPS Git URL. A `file://` URL can use a local mirror. For URLs, the install name is the repository's final path component without `.git`. Invalid names and names reserved for built-in aliases are usage errors. URLs must not contain credentials, a query, or a fragment.
 
-Without `@COMMIT`, each install clones the remote default branch HEAD, including when the pack is already installed. Append a full or abbreviated hex commit to select a revision. Pug clones into a temporary directory under `PUG_HOME/rules` and replaces `PUG_HOME/rules/NAME` after Git succeeds. `--timeout` (default `5m`) limits each repository install. Pug records no separate manifest; it reads the commit from the checkout.
+Without `@COMMIT`, each install clones the remote default branch HEAD, including when the pack is already installed. Append a full commit ID to select a revision. Pug clones into a temporary directory under `PUG_HOME/rules` and replaces `PUG_HOME/rules/NAME` after Git succeeds. `--timeout` (default `5m`) limits each repository install. Pug records no separate manifest; it reads the commit from the checkout.
 
 A pack can also be a local directory. Pug selects regular `.yml` and `.yaml` rule files anywhere in it, excluding hidden directories, symlinks, test fixtures (`*.test.yml`, `*.test.yaml`, `*.fixed.*`), and YAML without a top-level `rules` list. Each selected file has a 16 MiB limit. Profiles come from `configs/*.list`. A pack without an explicit profile uses `configs/default.list` if present, otherwise every rule file.
 

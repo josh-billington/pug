@@ -126,7 +126,7 @@ These runs on November 16, 2026 used the built `bin/pug`, OpenGrep 1.33.1, a fre
 
 The audit scans reported one partial-parse warning and one unresolved profile entry. The combined scans reported one partial-parse warning and 30 unresolved profile entries.
 
-Unit tests cover profile resolution, ID qualification, alias expansion, file limits, path escapes, symlink and fixture filtering, CLI errors, and rule changes in `pug diff`. The rule-pack integration test initializes and commits a repository in `t.TempDir`, clones it through a `file://` URL, and runs real OpenGrep. It verifies repeat installs, updates, full and abbreviated commit pins, stable rescans, and missing findings becoming unverified after rules change. These checks passed:
+Unit tests cover profile resolution, ID qualification, alias expansion, file limits, path escapes, symlink and fixture filtering, CLI errors, and rule changes in `pug diff`. The rule-pack integration test initializes and commits a repository in `t.TempDir`, clones it through a `file://` URL, and runs real OpenGrep. It verifies repeat installs, updates, commit pins, stable rescans, and missing findings becoming unverified after rules change. These checks passed:
 
 ```sh
 make check
