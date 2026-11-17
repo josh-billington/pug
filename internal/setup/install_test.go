@@ -102,7 +102,10 @@ func TestExtractCopiesOnlyBinaryAndRejectsLinks(t *testing.T) {
 }
 
 func TestReleaseCatalogCoversSupportedPlatforms(t *testing.T) {
-	for _, name := range append(append([]string{}, NativeTools[:5]...), "uv") {
+	for _, name := range append(append(append([]string{}, NativeTools...), OptionalTools...), "uv") {
+		if name == "schemathesis" {
+			continue
+		}
 		for _, platform := range []string{"linux/amd64", "linux/arm64", "darwin/amd64", "darwin/arm64"} {
 			a, err := release(name, platform)
 			if err != nil || !strings.HasPrefix(a.URL, "https://github.com/") || len(a.SHA256) != 64 {

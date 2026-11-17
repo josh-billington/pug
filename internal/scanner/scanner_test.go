@@ -2,6 +2,7 @@ package scanner
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"os/exec"
@@ -307,5 +308,150 @@ func TestSourceRunsTheSelectedPackProfile(t *testing.T) {
 	slices.Sort(got)
 	if want := []string{"fixture.python.eval.eval-in-loop", "fixture.python.exec"}; !slices.Equal(got, want) {
 		t.Fatalf("composed rules = %v, want the audit profile %v", got, want)
+	}
+}
+
+func TestSecretsHistoryReportsCommitsWithoutSecretValues(t *testing.T) {
+	t.Parallel()
+	repo := t.TempDir()
+	if err := os.Mkdir(filepath.Join(repo, ".git"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	secret := "ghp_" + "R8fKq2LmZx7Vb3Nc9Td4Wy6Hs1Pj5Ae0Gu2K"
+	line := `{"SourceMetadata":{"Data":{"Git":{"commit":"1a737cb499e0cd6bedcd19580965340f08df2d2d","file":"old.txt","email":"dev <dev@example.com>","line":1}}},` +
+		`"DetectorName":"Github","Verified":false,"Raw":"` + secret + `","RawV2":"` + secret + `","Redacted":"` + secret + `","ExtraData":{"token":"` + secret + `"}}` + "\n"
+	executor := executorFunc(func(_ context.Context, i runner.Invocation) runner.Result {
+		if len(i.Args) == 1 {
+			return runner.Result{Stdout: []byte("trufflehog 3.99.7\n")}
+		}
+		return runner.Result{ExitCode: 183, Stdout: []byte(line)}
+	})
+	r := Scan(t.Context(), Options{Target: repo, Kind: "repo", Checks: []string{"secrets-history"}, Timeout: time.Second}, executor)
+	check := r.Checks[0]
+	if check.Status != "completed" || check.Tool != "trufflehog" || len(check.Findings) != 1 {
+		t.Fatalf("unexpected check: %+v", check)
+	}
+	for _, flag := range []string{"--no-verification", "--no-update", "--json", "--exclude-detectors=URI"} {
+		if !slices.Contains(check.Command, flag) {
+			t.Fatalf("command lacks %s: %v", flag, check.Command)
+		}
+	}
+	finding := check.Findings[0]
+	if finding.Rule != "Github" || finding.Location != "old.txt" || finding.Line != 1 || finding.Severity != "high" ||
+		!strings.Contains(finding.Message, "1a737cb499e0cd6bedcd19580965340f08df2d2d") {
+		t.Fatalf("finding lost its history location: %+v", finding)
+	}
+	data, err := json.Marshal(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), secret) || strings.Contains(string(data), "dev@example.com") {
+		t.Fatalf("report exposes secret or committer: %s", data)
+	}
+}
+
+func TestSecretsHistoryNeedsRepositoryRoot(t *testing.T) {
+	t.Parallel()
+	executor := executorFunc(func(context.Context, runner.Invocation) runner.Result {
+		t.Error("trufflehog ran outside a repository root")
+		return runner.Result{}
+	})
+	r := Scan(t.Context(), Options{Target: t.TempDir(), Kind: "repo", Checks: []string{"secrets-history"}, Timeout: time.Second}, executor)
+	if check := r.Checks[0]; check.Status != "skipped" || r.Complete || !strings.Contains(check.Reason, ".git") {
+		t.Fatalf("non-repository target was not reported as untested: %+v", r)
+	}
+}
+
+func TestPortScanReportsOnlyUnexpectedPorts(t *testing.T) {
+	t.Parallel()
+	var scanEnv, versionEnv []string
+	stdout := `{"ip":"192.0.2.10","port":22,"protocol":"tcp"}` + "\n" +
+		`{"ip":"192.0.2.10","port":8080,"protocol":"tcp"}` + "\n" +
+		`{"ip":"192.0.2.10","port":8080,"protocol":"tcp"}` + "\n"
+	executor := executorFunc(func(_ context.Context, i runner.Invocation) runner.Result {
+		if len(i.Args) == 1 {
+			versionEnv = i.Env
+			return runner.Result{Stderr: []byte("  __\n[INF] Current Version: 2.7.0\n")}
+		}
+		scanEnv = i.Env
+		return runner.Result{Stdout: []byte(stdout)}
+	})
+	options := Options{Kind: "net", Target: "192.0.2.10", Checks: []string{"ports"}, Ports: "1-1024", Expect: []int{22}, Timeout: time.Second}
+	if err := Validate(&options); err != nil {
+		t.Fatal(err)
+	}
+	r := Scan(t.Context(), options, executor)
+	check := r.Checks[0]
+	if check.Status != "completed" || !r.Complete || check.Tool != "naabu" || check.Version != "[INF] Current Version: 2.7.0" {
+		t.Fatalf("unexpected check: %+v", check)
+	}
+	if len(check.Findings) != 1 || check.Findings[0].Location != "192.0.2.10:8080/tcp" || check.Findings[0].Severity != "medium" {
+		t.Fatalf("want one unexpected-port finding: %+v", check.Findings)
+	}
+	for _, flag := range []string{"-s", "-Pn", "-duc", "-no-stdin", "1-1024,22"} {
+		if !slices.Contains(check.Command, flag) {
+			t.Fatalf("command lacks %s: %v", flag, check.Command)
+		}
+	}
+	for _, env := range [][]string{versionEnv, scanEnv} {
+		for _, want := range []string{"HOME=" + os.TempDir(), "XDG_CONFIG_HOME=" + os.TempDir(), "DISABLE_CLOUD_UPLOAD=true"} {
+			if !slices.ContainsFunc(env, func(entry string) bool { return strings.HasPrefix(entry, want) }) {
+				t.Fatalf("naabu environment lacks %s: %v", want, env)
+			}
+		}
+	}
+}
+
+func TestPortScanWithoutExpectedPortIsIncomplete(t *testing.T) {
+	t.Parallel()
+	for _, tt := range []struct{ name, stdout, reason string }{
+		{name: "host down or filtered", stdout: "", reason: "no expected port"},
+		{name: "other address", stdout: `{"ip":"192.0.2.99","port":22,"protocol":"tcp"}` + "\n", reason: "outside the target"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			executor := executorFunc(func(_ context.Context, i runner.Invocation) runner.Result {
+				return runner.Result{Stdout: []byte(tt.stdout)}
+			})
+			r := Scan(t.Context(), Options{Kind: "net", Target: "192.0.2.10", Checks: []string{"ports"}, Ports: "1-1024", Expect: []int{22}, Timeout: time.Second}, executor)
+			if check := r.Checks[0]; check.Status != "failed" || r.Complete || !strings.Contains(check.Reason, tt.reason) {
+				t.Fatalf("silent scan was reported as clean: %+v", check)
+			}
+		})
+	}
+}
+
+func TestValidatePortScanTargets(t *testing.T) {
+	t.Parallel()
+	for _, tt := range []struct {
+		name, target, ports string
+		expect              []int
+	}{
+		{name: "hostname", target: "example.com", ports: "80", expect: []int{80}},
+		{name: "CIDR", target: "192.0.2.0/24", ports: "80", expect: []int{80}},
+		{name: "unspecified", target: "0.0.0.0", ports: "80", expect: []int{80}},
+		{name: "multicast", target: "224.0.0.1", ports: "80", expect: []int{80}},
+		{name: "IPv6 zone", target: "fe80::1%en0", ports: "80", expect: []int{80}},
+		{name: "mapped unspecified", target: "::ffff:0.0.0.0", ports: "80", expect: []int{80}},
+		{name: "no ports", target: "192.0.2.10", expect: []int{80}},
+		{name: "port too large", target: "192.0.2.10", ports: "1-65536", expect: []int{80}},
+		{name: "reversed range", target: "192.0.2.10", ports: "90-80", expect: []int{80}},
+		{name: "flag injection", target: "192.0.2.10", ports: "80,-passive", expect: []int{80}},
+		{name: "no expected port", target: "192.0.2.10", ports: "80"},
+		{name: "bad expected port", target: "192.0.2.10", ports: "80", expect: []int{0}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			options := Options{Kind: "net", Target: tt.target, Checks: []string{"ports"}, Ports: tt.ports, Expect: tt.expect, Timeout: time.Second}
+			if err := Validate(&options); err == nil {
+				t.Fatalf("unsafe port scan accepted: %+v", options)
+			}
+		})
+	}
+	for raw, want := range map[string]string{"2001:db8::0:1": "2001:db8::1", "::ffff:192.0.2.10": "192.0.2.10"} {
+		options := Options{Kind: "net", Target: raw, Checks: []string{"ports"}, Ports: "22,80-90", Expect: []int{22}, Timeout: time.Second}
+		if err := Validate(&options); err != nil || options.Target != want {
+			t.Fatalf("valid target %s rejected or not normalized: %q, %v", raw, options.Target, err)
+		}
 	}
 }

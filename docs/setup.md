@@ -12,7 +12,7 @@ Automatic installation requires macOS or Linux with glibc, on amd64 or arm64. On
 	pug setup
 	```
 
-	Setup checks Gitleaks, Actionlint, OpenGrep, Trivy, Nuclei, and Schemathesis. It installs missing tools under `~/.local/share/pug` and reuses working installations. Pug finds its own tools without shell profile changes.
+	Setup checks Gitleaks, Actionlint, OpenGrep, Trivy, Nuclei, and Schemathesis. It installs missing tools under `~/.local/share/pug` and reuses working installations. Pug finds its own tools without shell profile changes. TruffleHog backs only the opt-in `secrets-history` check, so it installs only with `pug setup --tools trufflehog`. naabu, used by `pug net`, installs only with `pug setup --tools naabu`.
 
 2. Confirm that setup prints `Selected scanners are ready.`
 

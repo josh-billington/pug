@@ -25,6 +25,15 @@ func Home() (string, error) {
 	return filepath.Join(home, ".local", "share", "pug"), nil
 }
 
+// IsolatedEnv points HOME at dir for tools that write state there, or returns nil to inherit the
+// environment. naabu writes config under HOME (XDG_CONFIG_HOME on Linux) and reads cloud upload settings.
+func IsolatedEnv(tool, dir string) []string {
+	if tool != "naabu" {
+		return nil
+	}
+	return append(os.Environ(), "HOME="+dir, "XDG_CONFIG_HOME="+dir, "DISABLE_CLOUD_UPLOAD=true", "PDCP_API_KEY=")
+}
+
 // LookPath preserves PATH precedence and only falls back for bare tool names.
 func LookPath(name string) (string, error) {
 	path, err := exec.LookPath(name)

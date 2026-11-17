@@ -11,6 +11,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/josh-billington/pug/internal/setup"
 )
 
 func TestUsageErrors(t *testing.T) {
@@ -25,6 +27,8 @@ func TestUsageErrors(t *testing.T) {
 		{name: "missing target", args: []string{"scan"}},
 		{name: "unknown flag", args: []string{"scan", ".", "--made-up"}},
 		{name: "active opt-in", args: []string{"app", "http://localhost:8000"}},
+		{name: "port scan opt-in", args: []string{"net", "127.0.0.1", "--ports", "22", "--expect", "22"}},
+		{name: "port scan hostname", args: []string{"net", "localhost", "--ports", "22", "--expect", "22", "--allow-active"}},
 		{name: "mutable image", args: []string{"image", "alpine:latest"}},
 		{name: "invalid format", args: []string{"scan", ".", "--format", "yaml"}},
 		{name: "invalid timeout", args: []string{"scan", ".", "--timeout", "-1s"}},
@@ -158,7 +162,7 @@ func TestSetupCheckProducesJSONWithoutWriting(t *testing.T) {
 			Status string `json:"status"`
 		} `json:"tools"`
 	}
-	if err := json.Unmarshal(stdout.Bytes(), &result); err != nil || code != 3 || result.Ready || len(result.Tools) != 6 {
+	if err := json.Unmarshal(stdout.Bytes(), &result); err != nil || code != 3 || result.Ready || len(result.Tools) != len(setup.NativeTools) {
 		t.Fatalf("bad setup result: code=%d output=%s err=%v", code, stdout.String(), err)
 	}
 	for _, tool := range result.Tools {

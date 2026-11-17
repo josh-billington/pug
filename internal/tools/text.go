@@ -52,23 +52,29 @@ func Summarize(text string, limit int) string {
 // VersionArgs returns the arguments that make a scanner print its version.
 func VersionArgs(tool string) []string {
 	switch tool {
-	case "actionlint", "nuclei":
+	case "actionlint", "nuclei", "naabu":
 		return []string{"-version"}
 	}
 	return []string{"--version"}
 }
 
-// VersionLine returns the first non-empty line of a version probe's stdout,
-// falling back to stderr for tools such as nuclei that print versions there.
+// VersionLine returns the first line of a version probe's stdout that mentions a version, else
+// its first non-empty line. It falls back to stderr for tools such as nuclei that print versions
+// there, and skips banners such as naabu's.
 func VersionLine(stdout, stderr []byte) string {
 	output := string(stdout)
 	if strings.TrimSpace(output) == "" {
 		output = string(stderr)
 	}
+	first := ""
 	for _, line := range strings.Split(output, "\n") {
-		if line = Summarize(line, 300); line != "" {
+		line = Summarize(line, 300)
+		if line != "" && first == "" {
+			first = line
+		}
+		if strings.Contains(strings.ToLower(line), "version") {
 			return line
 		}
 	}
-	return ""
+	return first
 }

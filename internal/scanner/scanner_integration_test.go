@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
@@ -235,7 +236,101 @@ func TestRealRulePackScan(t *testing.T) {
 	if err != nil || len(diff.Persistent) != 2 || len(diff.New) != 0 || len(diff.Absent) != 0 {
 		t.Fatalf("pinned rescan was unstable: %+v, %v", diff, err)
 	}
+}
 
+func TestRealSecretsHistory(t *testing.T) {
+	requireTool(t, "trufflehog")
+	requireTool(t, "git")
+	repo := t.TempDir()
+	git := func(args ...string) string {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-C", repo, "-c", "user.name=pug", "-c", "user.email=pug@example.com", "-c", "commit.gpgsign=false"}, args...)...)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	git("init", "-q")
+	fixtureFile(t, repo, "README.md", "fixture\n")
+	git("add", ".")
+	git("commit", "-qm", "clean")
+	options := Options{Kind: "repo", Target: repo, Checks: []string{"secrets-history"}, Timeout: 3 * time.Minute, Version: "integration"}
+	if err := Validate(&options); err != nil {
+		t.Fatal(err)
+	}
+	if clean := Scan(t.Context(), options, runner.Local{}); !clean.Complete || len(clean.Findings()) != 0 {
+		data, _ := json.MarshalIndent(clean, "", "  ")
+		t.Fatalf("clean history was not reported clean:\n%s", data)
+	}
+	fakeToken := "ghp_" + "8Qj4z6P9m1R7x3L5k2N0v4B8c6D9f1G7h3J5"
+	fixtureFile(t, repo, "credentials.py", "github_token = '"+fakeToken+"'\n")
+	git("add", ".")
+	git("commit", "-qm", "leak")
+	leak := git("rev-parse", "HEAD")
+	git("rm", "-q", "credentials.py")
+	git("commit", "-qm", "remove leak")
+	r := Scan(t.Context(), options, runner.Local{})
+	data, err := json.Marshal(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !r.Complete || len(r.Findings()) != 1 || r.Findings()[0].Location != "credentials.py" || !strings.Contains(r.Findings()[0].Message, leak) {
+		t.Fatalf("real scanner missed the deleted secret at %s:\n%s", leak, data)
+	}
+	if strings.Contains(string(data), fakeToken) || strings.Contains(string(data), "pug@example.com") {
+		t.Fatal("report exposed the fake token or committer")
+	}
+	t.Logf("secrets-history: %d findings, tool %s", len(r.Findings()), r.Checks[0].Version)
+}
+
+func TestRealPortScan(t *testing.T) {
+	requireTool(t, "naabu")
+	listen := func() int {
+		t.Helper()
+		l, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { l.Close() })
+		go func() {
+			for {
+				c, err := l.Accept()
+				if err != nil {
+					return
+				}
+				c.Close()
+			}
+		}()
+		return l.Addr().(*net.TCPAddr).Port
+	}
+	expected, unexpected := listen(), listen()
+	free, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	closed := free.Addr().(*net.TCPAddr).Port
+	free.Close()
+	ports := fmt.Sprintf("%d,%d", expected, unexpected)
+	scan := func(expect int) report.Report {
+		options := Options{Kind: "net", Target: "127.0.0.1", Checks: []string{"ports"}, Ports: ports, Expect: []int{expect}, Timeout: time.Minute, Version: "integration"}
+		if err := Validate(&options); err != nil {
+			t.Fatal(err)
+		}
+		return Scan(t.Context(), options, runner.Local{})
+	}
+	r := scan(expected)
+	want := fmt.Sprintf("127.0.0.1:%d/tcp", unexpected)
+	if !r.Complete || len(r.Findings()) != 1 || r.Findings()[0].Location != want {
+		data, _ := json.MarshalIndent(r, "", "  ")
+		t.Fatalf("real naabu did not report only %s:\n%s", want, data)
+	}
+	t.Logf("ports: %d findings, tool %s", len(r.Findings()), r.Checks[0].Version)
+	// Nothing answers on the closed port, so expecting it must not pass as clean.
+	if down := scan(closed); down.Complete || down.Checks[0].Status != "failed" {
+		data, _ := json.MarshalIndent(down, "", "  ")
+		t.Fatalf("scan with no expected port answering was reported complete:\n%s", data)
+	}
 }
 
 func TestRealApplicationScanners(t *testing.T) {
