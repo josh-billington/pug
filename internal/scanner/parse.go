@@ -20,8 +20,11 @@ type sarifDocument struct {
 		Tool struct {
 			Driver struct {
 				Rules []struct {
-					ID         string         `json:"id"`
-					Properties map[string]any `json:"properties"`
+					ID                   string         `json:"id"`
+					Properties           map[string]any `json:"properties"`
+					DefaultConfiguration struct {
+						Level string `json:"level"`
+					} `json:"defaultConfiguration"`
 				} `json:"rules"`
 			} `json:"driver"`
 		} `json:"tool"`
@@ -72,7 +75,10 @@ func parseSARIF(data []byte, tool string) ([]report.Finding, error) {
 			}
 		}
 		severities := map[string]string{}
+		// OpenGrep results carry no level; the rule's default level holds its severity.
+		levels := map[string]string{}
 		for _, rule := range run.Tool.Driver.Rules {
+			levels[rule.ID] = rule.DefaultConfiguration.Level
 			value, ok := rule.Properties["security-severity"]
 			if ok {
 				score, err := strconv.ParseFloat(fmt.Sprint(value), 64)
@@ -98,7 +104,11 @@ func parseSARIF(data []byte, tool string) ([]report.Finding, error) {
 			}
 			severity := severities[result.RuleID]
 			if severity == "" {
-				severity = map[string]string{"error": "high", "warning": "medium", "note": "low", "none": "info"}[result.Level]
+				level := result.Level
+				if level == "" {
+					level = levels[result.RuleID]
+				}
+				severity = map[string]string{"error": "high", "warning": "medium", "note": "low", "none": "info"}[level]
 				if severity == "" {
 					severity = "medium"
 				}
