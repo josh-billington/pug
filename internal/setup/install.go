@@ -5,7 +5,9 @@ import (
 	"archive/zip"
 	"compress/gzip"
 	"context"
+	"crypto/sha256"
 	_ "embed"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -27,6 +29,8 @@ type asset struct {
 	SHA256 string `json:"sha256"`
 }
 
+const maxDownload = 256 << 20
+
 func release(name, platform string) (asset, error) {
 	var releases map[string]map[string]asset
 	if err := json.Unmarshal(releaseData, &releases); err != nil {
@@ -37,6 +41,33 @@ func release(name, platform string) (asset, error) {
 		return asset{}, fmt.Errorf("automatic installation of %s is unavailable for %s; install it on PATH", name, platform)
 	}
 	return a, nil
+}
+
+func download(ctx context.Context, client *http.Client, a asset, destination io.Writer) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, a.URL, nil)
+	if err != nil {
+		return err
+	}
+	response, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("download: %w", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return fmt.Errorf("download returned HTTP %d", response.StatusCode)
+	}
+	hash := sha256.New()
+	n, err := io.Copy(io.MultiWriter(destination, hash), io.LimitReader(response.Body, maxDownload+1))
+	if err != nil {
+		return fmt.Errorf("download: %w", err)
+	}
+	if n > maxDownload {
+		return fmt.Errorf("download exceeds 256 MiB")
+	}
+	if hex.EncodeToString(hash.Sum(nil)) != a.SHA256 {
+		return fmt.Errorf("SHA-256 mismatch; refusing to install")
+	}
+	return nil
 }
 
 // Copy only the named binary, never archive paths, permissions, or symlinks.
@@ -123,7 +154,7 @@ func (e engine) installBinary(ctx context.Context, name string) (string, error) 
 	defer os.Remove(archive.Name())
 	defer archive.Close()
 	client := &http.Client{Timeout: 5 * time.Minute}
-	if err := download(ctx, client, a.URL, a.SHA256, archive); err != nil {
+	if err := download(ctx, client, a, archive); err != nil {
 		return "", err
 	}
 	candidate, err := os.CreateTemp(bin, ".install-*")
