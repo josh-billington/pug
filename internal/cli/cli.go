@@ -67,6 +67,7 @@ func newRoot(version string) *cobra.Command {
 	root.AddCommand(scanCommand("app", "app", version))
 	root.AddCommand(doctorCommand())
 	root.AddCommand(setupCommand())
+	root.AddCommand(rulesCommand())
 	root.AddCommand(diffCommand())
 	root.AddCommand(sandboxCommand(version))
 	return root

@@ -28,6 +28,11 @@ func TestUsageErrors(t *testing.T) {
 		{name: "invalid timeout", args: []string{"scan", ".", "--timeout", "-1s"}},
 		{name: "invalid threshold", args: []string{"scan", ".", "--fail-on", "anything"}},
 		{name: "sandbox separator", args: []string{"sandbox", "echo"}},
+		{name: "unknown rule pack", args: []string{"scan", ".", "--rules", "made-up"}},
+		{name: "profile on a pack without profiles", args: []string{"scan", ".", "--rules", "opengrep:default"}},
+		{name: "missing rules file", args: []string{"scan", ".", "--rules", "starter,missing.yml"}},
+		{name: "rules install without packs", args: []string{"rules", "install"}},
+		{name: "rules install unknown pack", args: []string{"rules", "install", "amplify", "made-up"}},
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
@@ -75,6 +80,39 @@ func TestIncompleteAndCancelledScansEmitJSON(t *testing.T) {
 				t.Fatalf("partial report lost: exit=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
 			}
 		})
+	}
+}
+
+func TestRulesListAndUninstalledPackScan(t *testing.T) {
+	t.Setenv("PATH", "")
+	home := t.TempDir()
+	t.Setenv("PUG_HOME", home)
+	var stdout, stderr bytes.Buffer
+	if code := Execute(t.Context(), []string{"rules", "list"}, &stdout, &stderr, "test"); code != 0 {
+		t.Fatalf("rules list failed: %d %s", code, stderr.String())
+	}
+	var packs []struct {
+		Name      string   `json:"name"`
+		Commit    string   `json:"commit"`
+		License   string   `json:"license"`
+		Installed bool     `json:"installed"`
+		Profiles  []string `json:"profiles"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &packs); err != nil || len(packs) != 3 {
+		t.Fatalf("rules list output: %s, %v", stdout.String(), err)
+	}
+	for _, p := range packs {
+		if p.Installed || len(p.Commit) != 40 || p.License == "" || p.Profiles == nil {
+			t.Fatalf("unexpected pack status: %+v", p)
+		}
+	}
+	stdout.Reset()
+	code := Execute(t.Context(), []string{"scan", t.TempDir(), "--checks", "source", "--rules", "amplify:security-audit", "--fail-on", "none"}, &stdout, &stderr, "test")
+	if code != 3 || !strings.Contains(stdout.String(), "run: pug rules install amplify") {
+		t.Fatalf("scan with an uninstalled pack: exit=%d stdout=%s", code, stdout.String())
+	}
+	if _, err := os.Stat(filepath.Join(home, "rules")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("scan wrote to the rules directory: %v", err)
 	}
 }
 
