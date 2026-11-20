@@ -21,6 +21,39 @@ you'll need go v1.25 or newer. automatic scanner installation supports macOS and
 
 install with `go install github.com/josh-billington/pug/cmd/pug@latest`. this installs `pug` into `$(go env GOPATH)/bin`. to build from source instead, follow the steps below.
 
+## install and set up with your agent
+
+paste this prompt into claude code, codex, or cursor. it installs the CLI, installs the pug skill, and prepares the repository scanners. it does not start a scan.
+
+```text
+Install Pug and set up the scanners for a repository scan.
+
+Confirm Go 1.25 or newer with `go version`. Install the CLI with `go install github.com/josh-billington/pug/cmd/pug@latest`. Confirm `pug --version`. If the shell cannot find `pug`, use `$(go env GOPATH)/bin/pug`, or `$(go env GOBIN)/pug` when GOBIN is set. Do not edit the shell profile.
+
+Install the Pug skill for this agent. If this session has the Pug checkout, copy only `skills/pug` into the user skills directory. For Claude Code, load this checkout with `claude --plugin-dir` set to the checkout path, so `/pug:doctor`, `/pug:scan`, `/pug:image`, and `/pug:diff` are available. For Codex and Cursor, the shared skill name is `pug`. Do not copy `skills/scan`, `skills/image`, `skills/diff`, or `skills/doctor`.
+
+When `skills/pug` is on the default branch, this command installs the shared skill instead:
+
+npx skills add josh-billington/pug --skill pug --agent claude-code codex cursor
+
+Run `pug setup --repo`. That checks Gitleaks, Actionlint, OpenGrep, and Trivy, and installs any that are missing. Do not use sudo.
+
+Report whether setup printed "Selected scanners are ready." Do not start a scan.
+```
+
+installing the skill does not install the `pug` binary or the scanners. the shared skill is [skills/pug/SKILL.md](skills/pug/SKILL.md). the other folders under `skills/` are claude code actions.
+
+after setup, ask the agent for one action:
+
+- `doctor` lists scanners. it does not install tools or run a scan
+- `scan` runs the default repository checks. the directory is optional and defaults to `.`
+- `image` scans one container image pinned as `name@sha256:` plus 64 lowercase hex digits
+- `diff before.json after.json` compares two saved reports
+
+in claude code those actions are `/pug:doctor`, `/pug:scan`, `/pug:image`, and `/pug:diff`. in codex, select `pug` from `/skills` or enter `$pug` and the action. in cursor agent chat, enter `/pug` and the action. if cursor does not list the skill, copy `skills/pug` to `~/.cursor/skills/pug` and start a new chat.
+
+the skill does not launch active application or network scans. upstream OpenGrep rule packs stay opt-in: `pug rules install opengrep`, then `pug scan --rules opengrep`.
+
 ## write your first report
 
 1. from this repository's root, build pug and check its version
@@ -35,17 +68,17 @@ install with `go install github.com/josh-billington/pug/cmd/pug@latest`. this in
 2. install any missing scanners
 
 	```sh
-	./bin/pug setup
+	./bin/pug setup --repo
 	```
 
-	setup checks the native scanners and installs missing tools under `~/.local/share/pug`. when the selected scanners work, setup prints `Selected scanners are ready.` pug finds these tools without changes to your shell's `PATH`.
+	setup checks Gitleaks, Actionlint, OpenGrep, and Trivy, and installs missing tools under `~/.local/share/pug`. when the selected scanners work, setup prints `Selected scanners are ready.` pug finds these tools without changes to your shell's `PATH`. `./bin/pug setup` also installs Nuclei and Schemathesis.
 
 	if setup reports a failure, follow [install scanners](docs/setup.md) before continuing.
 
 3. scan the current checkout and save a report
 
 	```sh
-	./bin/pug scan . --output pug-report.json
+	./bin/pug scan -o pug-report.json
 	```
 
 	pug prints JSON to stdout and saves the same report in `pug-report.json`. A report with `"complete": true` means the requested checks finished. It does not prove that the checkout is secure

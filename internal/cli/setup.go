@@ -14,11 +14,18 @@ import (
 func setupCommand() *cobra.Command {
 	var options setup.Options
 	var format string
+	var repo bool
 	cmd := &cobra.Command{
 		Use: "setup", Short: "Check scanners and install missing tools",
 		Long: "Check installed scanners and install missing ones into ~/.local/share/pug.\nSetup uses pinned releases. It does not use sudo or change shell profiles.\nSet PUG_HOME to an absolute path to use another directory.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if repo {
+				if cmd.Flags().Changed("tools") {
+					return usageError("--repo and --tools cannot be combined")
+				}
+				options.Tools = setup.RepositoryTools
+			}
 			if format != "text" && format != "json" {
 				return usageError("format must be text or json")
 			}
@@ -77,6 +84,7 @@ func setupCommand() *cobra.Command {
 	}
 	flags := cmd.Flags()
 	flags.BoolVar(&options.CheckOnly, "check", false, "Check tools without downloading or installing")
+	flags.BoolVar(&repo, "repo", false, "Select only tools for the default repository checks")
 	flags.StringSliceVar(&options.Tools, "tools", setup.NativeTools, "Scanners to check and install if missing; opt-in: trufflehog,naabu")
 	flags.BoolVar(&options.WithZAP, "with-zap", false, "Also pull the pinned ZAP image. Requires Docker")
 	flags.StringVar(&options.ZAPImage, "zap-image", tools.ZAPImage, "Digest-pinned ZAP image to pull if missing")

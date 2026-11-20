@@ -18,7 +18,7 @@ pug sandbox --help
 | --- | --- |
 | `pug setup` | Checks native scanners and installs missing tools for the current user. |
 | `pug doctor` | Lists executables found on `PATH` or in Pug's tool directory. It does not run version commands or check scanner databases. |
-| `pug scan DIRECTORY` | Scans the current working tree with the selected repository checks. |
+| `pug scan [DIR]` | Scans a working tree. The default directory is `.`. |
 | `pug image NAME@sha256:DIGEST` | Runs Trivy vulnerability and misconfiguration checks. Trivy can fetch the image and database. |
 | `pug app URL --allow-active` | Runs the selected application checks against the target. |
 | `pug net IP --ports SPEC --expect PORTS --allow-active` | Scans TCP ports on one IP address and reports open ports that are not expected. |
@@ -35,6 +35,7 @@ pug sandbox --help
 | Flag | Default | Behavior |
 | --- | --- | --- |
 | `--check` | `false` | Checks tools without downloads or installations. |
+| `--repo` | `false` | Selects Gitleaks, Actionlint, OpenGrep, and Trivy. Those are the tools for the default repository checks. Do not combine `--repo` with `--tools`. |
 | `--tools` | `gitleaks,actionlint,opengrep,trivy,nuclei,schemathesis` | Selects at least one native scanner. `trufflehog` and `naabu` install only when named. Unknown or repeated names are invalid. |
 | `--with-zap` | `false` | Also checks the ZAP image and pulls it if missing. Requires a running Docker daemon. |
 | `--zap-image` | The tested image in [`internal/tools/tools.go`](../internal/tools/tools.go) | Selects the digest-pinned image for `--with-zap`. A custom image also needs `--zap-image` on `pug app`. |
@@ -154,13 +155,14 @@ The live application tests in [`internal/scanner/scanner_integration_test.go`](.
 
 | Flag | Applies to | Default | Behavior |
 | --- | --- | --- | --- |
-| `--format` | `scan`, `image`, `app` | `json` | Accepts `json` or `text`. |
-| `--output` | `scan`, `image`, `app` | Unset | Also saves the report. The parent directory must exist. |
-| `--fail-on` | `scan`, `image`, `app` | `high` | Minimum severity that produces exit code `1`. Accepts `info`, `low`, `medium`, `high`, `critical`, or `none`. |
-| `--timeout` | `scan`, `image`, `app` | `5m` | Sets a positive deadline per scanner, including its version lookup. |
-| `--checks` | `scan`, `app` | Target defaults | Selects checks by name. Duplicate or unsupported names are invalid. |
+| `--format`, `-f` | `scan`, `image`, `app`, `net` | `json` | Accepts `json` or `text`. |
+| `--output`, `-o` | `scan`, `image`, `app`, `net` | Unset | Also saves the report. The parent directory must exist. |
+| `--fail-on` | `scan`, `image`, `app`, `net` | `high`, or `medium` for `net` | Minimum severity that produces exit code `1`. Accepts `info`, `low`, `medium`, `high`, `critical`, or `none`. |
+| `--timeout` | `scan`, `image`, `app`, `net` | `5m` | Sets a positive deadline per scanner, including its version lookup. |
+| `--checks`, `-c` | `scan` | Repository defaults | Selects checks by name. `-c` applies to `scan` only. Duplicate or unsupported names are invalid. |
+| `--checks` | `app` | `api,exposure` | Selects `api`, `exposure`, or `zap`. |
 | `--rules` | `scan` | `starter` | Selects the `source` rules. Accepts `starter`, an installed pack, `NAME:PROFILE`, a reviewed local rules file, or `DIR[:PROFILE]`. A value that ends in `.yml` or `.yaml` or contains a path separator is a path. Repeat the flag or separate values with commas. |
-| `--allow-active` | `app` | `false` | Required for every application scan. |
+| `--allow-active` | `app`, `net` | `false` | Required for every application test and port scan. |
 | `--schema` | `app` | Unset | Supplies the local OpenAPI schema for `api`. |
 | `--templates` | `app` | Unset | Supplies the reviewed local templates for `exposure`. |
 | `--zap-image` | `app` | The tested image in [`internal/tools/tools.go`](../internal/tools/tools.go) | Selects a preinstalled digest-pinned image for `zap`. |

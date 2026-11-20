@@ -6,18 +6,20 @@ Install the required scanners with [Install scanners](setup.md). Native scanners
 
 ## Scan a repository
 
-To run the default repository checks, replace `/path/to/repo` with your checkout and run:
+To run the default repository checks in the current directory, run:
 
 ```sh
-pug scan /path/to/repo --output pug-report-before.json
+pug scan -o pug-report-before.json
 ```
+
+Pass a directory when the checkout is not the current directory: `pug scan /path/to/repo -o pug-report-before.json`.
 
 The default checks cover source patterns, secrets, dependency vulnerabilities, GitHub Actions, and infrastructure configuration. Pug writes JSON to stdout and to `pug-report-before.json`.
 
-To select checks, pass `--checks`:
+To select checks, pass `-c`:
 
 ```sh
-pug scan . --checks source,secrets,actions --format text
+pug scan -c source,secrets,actions -f text
 ```
 
 See [Checks](commands.md#checks) for the tool and scope of each check. A missing or skipped requested check makes the report incomplete. The exception is `actions` in a repository with no workflow YAML files: it completes with nothing to lint and does not require actionlint.
@@ -58,10 +60,12 @@ If a selected pack is not installed, the `source` check is skipped with the inst
 ## Compare reports after a fix
 
 1. Fix the finding in the checkout.
-2. Run the same checks against the same target.
+2. Run the same checks against the same directory. Repeat any directory argument and `-c` value from the first scan.
+
+	If the first scan used the current directory and the default checks, run:
 
 	```sh
-	pug scan /path/to/repo --output pug-report-after.json
+	pug scan -o pug-report-after.json
 	```
 
 3. Compare the saved reports.

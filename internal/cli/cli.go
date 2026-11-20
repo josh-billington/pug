@@ -58,7 +58,7 @@ func newRoot(version string) *cobra.Command {
 	root := &cobra.Command{
 		Use: "pug", Short: "Security evidence for coding agents", Version: version,
 		SilenceUsage: true, SilenceErrors: true,
-		Example: "  pug setup\n  pug scan . --output pug-report.json",
+		Example: "  pug setup --repo\n  pug scan -o pug-report.json",
 	}
 	root.SetFlagErrorFunc(func(_ *cobra.Command, err error) error { return usageError("%v", err) })
 	root.AddCommand(scanCommand("scan", "repo", version))
@@ -102,13 +102,22 @@ func scanCommand(name, kind, version string) *cobra.Command {
 			"net": "Scan TCP ports on one IP address you are authorized to test",
 		}[kind],
 		Args: func(_ *cobra.Command, args []string) error {
+			if kind == "repo" {
+				if len(args) > 1 {
+					return usageError("scan accepts at most one directory")
+				}
+				return nil
+			}
 			if len(args) != 1 {
 				return usageError("%s requires exactly one target", name)
 			}
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			options.Target = args[0]
+			options.Target = "."
+			if len(args) > 0 {
+				options.Target = args[0]
+			}
 			if format != "json" && format != "text" {
 				return usageError("format must be json or text")
 			}
@@ -153,8 +162,8 @@ func scanCommand(name, kind, version string) *cobra.Command {
 		},
 	}
 	flags := cmd.Flags()
-	flags.StringVar(&format, "format", "json", "Report format: json or text")
-	flags.StringVar(&output, "output", "", "Also atomically save the report to this file (mode 0600)")
+	flags.StringVarP(&format, "format", "f", "json", "Report format: json or text")
+	flags.StringVarP(&output, "output", "o", "", "Also atomically save the report to this file (mode 0600)")
 	failOnDefault := "high"
 	if kind == "net" {
 		// Every net finding is a medium policy deviation; failing on it is the point of the scan.
@@ -164,7 +173,8 @@ func scanCommand(name, kind, version string) *cobra.Command {
 	flags.DurationVar(&options.Timeout, "timeout", 5*time.Minute, "Timeout per scanner, including version lookup")
 	switch kind {
 	case "repo":
-		flags.StringSliceVar(&options.Checks, "checks", scanner.RepositoryChecks, "Checks: source,secrets,dependencies,actions,infra; opt-in: secrets-history")
+		cmd.Use = "scan [DIR]"
+		flags.StringSliceVarP(&options.Checks, "checks", "c", scanner.RepositoryChecks, "Checks: source,secrets,dependencies,actions,infra; opt-in: secrets-history")
 		flags.StringSliceVar(&ruleValues, "rules", []string{"starter"}, "Source rules, repeated or comma-separated: starter, NAME[:PROFILE], a local .yml file, or DIR[:PROFILE]")
 	case "image":
 		options.Checks = []string{"image"}

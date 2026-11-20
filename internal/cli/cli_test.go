@@ -24,7 +24,8 @@ func TestUsageErrors(t *testing.T) {
 		{name: "invalid setup tool", args: []string{"setup", "--tools", "unknown"}},
 		{name: "invalid setup format", args: []string{"setup", "--format", "yaml"}},
 		{name: "invalid setup timeout", args: []string{"setup", "--timeout", "0s"}},
-		{name: "missing target", args: []string{"scan"}},
+		{name: "multiple targets", args: []string{"scan", ".", "other"}},
+		{name: "conflicting setup selectors", args: []string{"setup", "--repo", "--tools", "opengrep"}},
 		{name: "unknown flag", args: []string{"scan", ".", "--made-up"}},
 		{name: "active opt-in", args: []string{"app", "http://localhost:8000"}},
 		{name: "port scan opt-in", args: []string{"net", "127.0.0.1", "--ports", "22", "--expect", "22"}},
@@ -52,6 +53,51 @@ func TestUsageErrors(t *testing.T) {
 				t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 			}
 		})
+	}
+}
+
+func TestScanDefaultsToCurrentDirectoryWithShortFlags(t *testing.T) {
+	t.Setenv("PATH", "")
+	t.Setenv("PUG_HOME", t.TempDir())
+	root := t.TempDir()
+	t.Chdir(root)
+	output := filepath.Join(root, "report.json")
+	var stdout, stderr bytes.Buffer
+	code := Execute(t.Context(), []string{"scan", "-c", "secrets", "-o", output, "-f", "json"}, &stdout, &stderr, "test")
+	var result struct {
+		Target string                  `json:"target"`
+		Checks []struct{ Name string } `json:"checks"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &result); err != nil || code != 3 || len(result.Checks) != 1 || result.Checks[0].Name != "secrets" {
+		t.Fatalf("scan did not select secrets: exit=%d, stdout=%s, stderr=%s", code, &stdout, &stderr)
+	}
+	resolved, err := filepath.EvalSymlinks(result.Target)
+	canonical, rootErr := filepath.EvalSymlinks(root)
+	if err != nil || rootErr != nil || resolved != canonical {
+		t.Fatalf("target = %q; want %q", result.Target, root)
+	}
+	if saved, err := os.ReadFile(output); err != nil || !bytes.Equal(saved, stdout.Bytes()) {
+		t.Fatalf("output not saved: %v", err)
+	}
+}
+
+func TestSetupRepoSelectsRepositoryTools(t *testing.T) {
+	t.Setenv("PATH", "")
+	home := t.TempDir()
+	t.Setenv("PUG_HOME", home)
+	var stdout, stderr bytes.Buffer
+	code := Execute(t.Context(), []string{"setup", "--repo", "--check", "--format", "json"}, &stdout, &stderr, "test")
+	var result setup.Result
+	if err := json.Unmarshal(stdout.Bytes(), &result); err != nil || code != 3 || result.Ready {
+		t.Fatalf("setup --repo --check: exit=%d, stdout=%s, stderr=%s", code, &stdout, &stderr)
+	}
+	if len(result.Tools) != len(setup.RepositoryTools) {
+		t.Fatalf("selected tools: %+v", result.Tools)
+	}
+	for index, tool := range result.Tools {
+		if tool.Name != setup.RepositoryTools[index] || tool.Status != "missing" {
+			t.Fatalf("unexpected tool %+v", tool)
+		}
 	}
 }
 

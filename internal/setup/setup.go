@@ -21,6 +21,8 @@ import (
 
 var NativeTools = []string{"gitleaks", "actionlint", "opengrep", "trivy", "nuclei", "schemathesis"}
 
+var RepositoryTools = []string{"gitleaks", "actionlint", "opengrep", "trivy"}
+
 // OptionalTools back opt-in checks and install only when named with --tools.
 var OptionalTools = []string{"trufflehog", "naabu"}
 
@@ -189,9 +191,9 @@ func nextStep(selected []string) string {
 		// Optional checks stay out of the suggestion once every default is ready.
 		selection := ""
 		if defaults != len(scanner.RepositoryChecks) {
-			selection = " --checks " + strings.Join(checks, ",")
+			selection = " -c " + strings.Join(checks, ",")
 		}
-		return "pug scan ." + selection + " --output pug-report.json"
+		return "pug scan" + selection + " -o pug-report.json"
 	}
 	checks = nil
 	args := ""
