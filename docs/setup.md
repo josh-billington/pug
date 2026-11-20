@@ -1,75 +1,79 @@
-# Install scanners
+# install scanners
 
-Use this guide to install Pug's native scanners and prepare ZAP. The commands assume `pug` is on `PATH`. From this checkout, use `./bin/pug` instead.
+use this guide to install pug's native scanners and prepare ZAP. the commands assume `pug` is on `PATH`. from this checkout, use `./bin/pug`.
 
-Automatic installation requires macOS or Linux with glibc, on amd64 or arm64. On Windows, install scanners on `PATH`, then use the check-only command below.
+automatic installation requires macOS or Linux with glibc, on amd64 or arm64. on Windows, install the scanners on `PATH`, then use the check-only command below.
 
-## Install missing scanners
+## install missing scanners
 
-1. Run setup as the account that runs scans.
+1. run setup as the account that runs scans.
 
 	```sh
 	pug setup
 	```
 
-	Setup checks Gitleaks, Actionlint, OpenGrep, Trivy, Nuclei, and Schemathesis. It installs missing tools under `~/.local/share/pug` and reuses working installations. Pug finds its own tools without shell profile changes. TruffleHog backs only the opt-in `secrets-history` check, so it installs only with `pug setup --tools trufflehog`. naabu, used by `pug net`, installs only with `pug setup --tools naabu`.
+	setup checks gitleaks, actionlint, opengrep, trivy, nuclei, and schemathesis. it installs missing tools under `~/.local/share/pug` and reuses working installations. pug finds its own tools without shell profile changes.
 
-2. Confirm that setup prints `Selected scanners are ready.`
+	for only the default repository scanners, run `pug setup --repo`. that selects gitleaks, actionlint, opengrep, and trivy. do not combine `--repo` with `--tools`.
 
-	If setup reports a failure, use [Retry a failed installation](#retry-a-failed-installation). Setup exits with code `3` when a selected tool is missing or fails.
+	trufflehog backs only the opt-in `secrets-history` check, so it installs only with `pug setup --tools trufflehog`. naabu, used by `pug net`, installs only with `pug setup --tools naabu`.
 
-3. Run the scan command printed after `Next:`.
+2. confirm that setup prints `Selected scanners are ready.`
 
-	For scan examples, see [Run scans and compare reports](scanning.md).
+	if setup reports a failure, use [retry a failed installation](#retry-a-failed-installation). setup exits with code `3` when a selected tool is missing or fails.
 
-If you need a different installation directory, set `PUG_HOME` to an absolute path before setup. Use the same value for later Pug commands. See [Tool paths and versions](commands.md#tool-paths-and-versions).
+3. run the scan command printed after `Next:`.
 
-## Check tools without installing
+	for scan examples, see [run scans and compare reports](scanning.md).
 
-To check installed tools without downloading or installing anything, run:
+if you need a different installation directory, set `PUG_HOME` to an absolute path before setup. use the same value for later pug commands. see [tool paths and versions](commands.md#tool-paths-and-versions).
+
+## check tools without installing
+
+to check installed tools without downloading or installing anything, run:
 
 ```sh
 pug setup --check
 ```
 
-Setup runs version commands and checks whether Docker's daemon responds. It exits with code `3` if a selected scanner is missing or fails. Missing Docker or Git does not block native scanner setup.
+setup runs version commands and checks whether the Docker daemon responds. it exits with code `3` if a selected scanner is missing or fails. missing Docker or git does not block native scanner setup.
 
-To select fewer scanners, pass their names with `--tools`:
+to select fewer scanners, pass their names with `--tools`:
 
 ```sh
 pug setup --tools gitleaks,actionlint
 ```
 
-For scripts, use JSON output:
+for scripts, use JSON output:
 
 ```sh
 pug setup --check --format json
 ```
 
-Check `ready` and the statuses in `tools`. Progress goes to stderr. See [Setup results](commands.md#setup-results) for the fields and status values.
+check `ready` and the statuses in `tools`. progress goes to stderr. see [setup results](commands.md#setup-results) for the fields and status values.
 
-## Prepare ZAP
+## prepare ZAP
 
-1. Install Docker through your operating system.
-2. Start the Docker daemon.
-3. Pull Pug's pinned ZAP image if it is missing.
+1. install Docker through your operating system.
+2. start the Docker daemon.
+3. pull pug's pinned ZAP image if it is missing.
 
 	```sh
 	pug setup --with-zap
 	```
 
-	Setup reports `ZAP: ready` when the image is available. This checks image availability, not a live ZAP scan. Setup also checks the selected native scanners.
+	setup reports `ZAP: ready` when the image is available. this checks image availability, not a live ZAP scan. setup also checks the selected native scanners.
 
-If you choose another image, pass its full digest reference with `--zap-image` to both `pug setup` and `pug app`. See [Run ZAP](scanning.md#run-zap) for the scan procedure.
+if you choose another image, pass its full digest reference with `--zap-image` to both `pug setup` and `pug app`. see [run ZAP](scanning.md#run-zap) for the scan procedure.
 
-## Retry a failed installation
+## retry a failed installation
 
-If a download fails, check your network and proxy settings, then rerun setup. Setup reuses tools that already work.
+if a download fails, check your network and proxy settings, then rerun setup. setup reuses tools that already work.
 
-If a checksum does not match, check the pinned release asset before retrying. Pug stops before running the downloaded binary.
+if a checksum does not match, check the pinned release asset before retrying. pug stops before it runs the downloaded binary.
 
-If an installed tool's version command fails, repair or remove that installation. Then rerun setup. Tools on `PATH` take precedence over Pug's installations.
+if an installed tool's version command fails, repair or remove that installation. then rerun setup. tools on `PATH` take precedence over pug's installations.
 
-If setup is interrupted, rerun it. uv can leave an unfinished Python environment or cache that a later run must complete.
+if setup is interrupted, rerun it. uv can leave an unfinished Python environment or cache that a later run must complete.
 
-If Trivy fails during a scan, check its database access separately. Setup checks that Trivy runs but does not check the vulnerability database. See [Tool installation](security.md#tool-installation) for download verification and dependency limits.
+if trivy fails during a scan, check its database access separately. setup checks that trivy runs. it does not check the vulnerability database. see [tool installation](security.md#tool-installation) for download verification and dependency limits.

@@ -1,138 +1,142 @@
-# Run scans and compare reports
+# run scans and compare reports
 
-Use these procedures to produce a Pug report for a repository, container image, or running application. The commands assume `pug` is on `PATH`. From this checkout, use `./bin/pug` instead.
+use these procedures to produce a pug report for a repository, a container image, or a running application. the commands assume `pug` is on `PATH`. from this checkout, use `./bin/pug`.
 
-Install the required scanners with [Install scanners](setup.md). Native scanners inherit your account's permissions, so scan trusted checkouts. See [Security boundaries](security.md) before handling hostile code.
+install the required scanners with [install scanners](setup.md). native scanners inherit your account's permissions, so scan trusted checkouts. see [security boundaries](security.md) before you handle hostile code.
 
-## Scan a repository
+## scan a repository
 
-To run the default repository checks, replace `/path/to/repo` with your checkout and run:
-
-```sh
-pug scan /path/to/repo --output pug-report-before.json
-```
-
-The default checks cover source patterns, secrets, dependency vulnerabilities, GitHub Actions, and infrastructure configuration. Pug writes JSON to stdout and to `pug-report-before.json`.
-
-To select checks, pass `--checks`:
+to run the default repository checks in the current directory, run:
 
 ```sh
-pug scan . --checks source,secrets,actions --format text
+pug scan -o pug-report-before.json
 ```
 
-See [Checks](commands.md#checks) for the tool and scope of each check. A missing or skipped requested check makes the report incomplete. The exception is `actions` in a repository with no workflow YAML files: it completes with nothing to lint and does not require actionlint.
+pass a directory when the checkout is not the current directory: `pug scan /path/to/repo -o pug-report-before.json`.
 
-## Use a rule pack
+the default checks cover source patterns, secrets, dependency vulnerabilities, GitHub Actions, and infrastructure configuration. pug writes JSON to stdout and to `pug-report-before.json`.
 
-The `source` check runs four starter rules by default. Rule packs add maintained upstream OpenGrep rules. `pug rules install` requires Git and fetches rules from upstream. Source scans use the installed files and never fetch rules.
+to select checks, pass `-c`:
 
-1. Install the pack.
+```sh
+pug scan -c source,secrets,actions -f text
+```
+
+see [checks](commands.md#checks) for the tool and scope of each check. a missing or skipped requested check makes the report incomplete. one exception applies to `actions`. in a repository with no workflow YAML files, that check completes with nothing to lint and does not require actionlint.
+
+## use a rule pack
+
+the `source` check runs four starter rules by default. rule packs add upstream opengrep rules. `pug rules install` requires git and fetches rules from upstream. a source scan reads the installed files and does not fetch rules.
+
+1. install the pack.
 
 	```sh
 	pug rules install amplify
 	```
 
-2. Scan with a profile from the pack.
+2. scan with a profile from the pack.
 
 	```sh
-	pug scan /path/to/repo --checks source --rules amplify:security-audit
+	pug scan /path/to/repo -c source --rules amplify:security-audit
 	```
 
-`pug rules list` shows installed packs with their paths, checkout commits, and profiles, plus the built-in aliases and whether they are installed. Running `pug rules install amplify` again updates it to the remote default branch HEAD. To select a revision, use `pug rules install amplify@COMMIT`, with the full commit ID.
+`pug rules list` shows installed packs with their paths, checkout commits, and profiles. it also shows the built-in aliases and whether they are installed. running `pug rules install amplify` again updates that pack to the remote default branch HEAD. to select a revision, use `pug rules install amplify@COMMIT`, with the full commit ID.
 
-Other OpenGrep rules repositories work too:
+other opengrep rules repositories work too:
 
 ```sh
 pug rules install github.com/trailofbits/semgrep-rules
-pug scan /path/to/repo --checks source --rules amplify:security-audit,semgrep-rules
+pug scan /path/to/repo -c source --rules amplify:security-audit,semgrep-rules
 ```
 
-A pack without a profile in `--rules` uses `configs/default.list` if it exists, otherwise every rule file. Pass `--rules` more than once, or separate values with commas, to combine packs, profiles, the starter rules, local rule files, and directories such as `./team-rules` or `./team-rules:audit`. See [Rule packs](commands.md#rule-packs) for layout and file-selection details.
+a pack without a profile in `--rules` uses `configs/default.list` if that file exists. otherwise it uses every rule file. pass `--rules` more than once, or separate values with commas, to combine packs, profiles, the starter rules, local rule files, and directories such as `./team-rules` or `./team-rules:audit`. see [rule packs](commands.md#rule-packs) for layout and file selection.
 
-The `opengrep` and `amplify` packs use LGPL-2.1 with the Commons Clause, which restricts selling the rules. Pug never ships these Commons Clause rule packs. Each user fetches them from upstream when running `pug rules install`. Review the license before you use a pack.
+the `opengrep` and `amplify` packs use LGPL-2.1 with the Commons Clause, which restricts selling the rules. pug does not ship these packs. each user fetches them from upstream with `pug rules install`. review the license before you use a pack.
 
-If a selected pack is not installed, the `source` check is skipped with the install command as its reason, and the report is incomplete.
+if a selected pack is not installed, the `source` check is skipped. its reason is the install command, and the report is incomplete.
 
-`pug diff` compares the composed rules hashes recorded in reports. When the rules differ, findings missing from the later report are `unverified`, not `absent`.
+`pug diff` compares the composed rules hashes recorded in the reports. when the rules differ, findings missing from the later report are `unverified`, not `absent`.
 
-## Compare reports after a fix
+## compare reports after a fix
 
-1. Fix the finding in the checkout.
-2. Run the same checks against the same target.
+1. fix the finding in the checkout.
+2. run the same checks against the same directory. repeat any directory argument and `-c` value from the first scan.
+
+	if the first scan used the current directory and the default checks, run:
 
 	```sh
-	pug scan /path/to/repo --output pug-report-after.json
+	pug scan -o pug-report-after.json
 	```
 
-3. Compare the saved reports.
+3. compare the saved reports.
 
 	```sh
 	pug diff pug-report-before.json pug-report-after.json
 	```
 
-The comparison lists `new`, `persistent`, `absent`, and `unverified` findings. If a check did not finish, missing findings remain `unverified`. See [Report comparison](commands.md#report-comparison).
+the comparison lists `new`, `persistent`, `absent`, and `unverified` findings. if a check did not finish, missing findings remain `unverified`. see [report comparison](commands.md#report-comparison).
 
-## Scan a container image
+## scan a container image
 
-Set `IMAGE` to a full image reference in `NAME@sha256:DIGEST` format. Then run:
+set `IMAGE` to a full image reference in `NAME@sha256:DIGEST` format. then run:
 
 ```sh
-pug image "$IMAGE" --output pug-report-image.json
+pug image "$IMAGE" -o pug-report-image.json
 ```
 
-Trivy can fetch the image and its vulnerability database. ZAP and sandbox image handling is separate.
+trivy can fetch the image and its vulnerability database. ZAP and sandbox image handling is separate.
 
-## Test an application
+## test an application
 
-These checks send active requests and can change application data. Use a disposable application with test data. Review the local schema and templates before the scan.
+these checks send active requests and can change application data. use a disposable application with test data. review the local schema and templates before the scan.
 
-1. Start the application in the test environment.
-2. Replace the example URL, schema path, and template path with your values.
-3. Run the application checks.
+1. start the application in the test environment.
+2. replace the example URL, schema path, and template path with your values.
+3. run the application checks.
 
 	```sh
 	pug app http://127.0.0.1:8000 \
 		--allow-active \
 		--schema /path/to/openapi.json \
 		--templates /path/to/reviewed-http-templates \
-		--output pug-report-app.json
+		-o pug-report-app.json
 	```
 
-The report contains API findings from Schemathesis and template findings from Nuclei. See [Application check limits](commands.md#application-check-limits) for request limits and redirect behavior.
+the report contains API findings from schemathesis and template findings from nuclei. see [application check limits](commands.md#application-check-limits) for request limits and redirect behavior.
 
-## Scan ports on a host
+## scan ports on a host
 
-A port scan opens TCP connections to the address. Scan only addresses you are authorized to test.
+a port scan opens TCP connections to the address. scan only an address you are authorized to test.
 
-1. List the ports the host should expose, such as `22` and `443`.
-2. Scan the address. Replace the example values with yours.
+1. list the ports the host should expose, such as `22` and `443`.
+2. scan the address. replace the example values with yours.
 
 	```sh
 	pug net 192.0.2.10 \
 		--ports 1-1024 \
 		--expect 22,443 \
 		--allow-active \
-		--output pug-report-net.json
+		-o pug-report-net.json
 	```
 
-Each open port outside `--expect` is a finding, and the command exits with code `1`. If none of the expected ports answers, the report is incomplete and the command exits with code `3`. The host may be down, or a firewall may drop the scan. See [Port scan limits](commands.md#port-scan-limits).
+each open port outside `--expect` is a finding, and the command exits with code `1`. if none of the expected ports answers, the report is incomplete and the command exits with code `3`. the host may be down, or a firewall may drop the scan. see [port scan limits](commands.md#port-scan-limits).
 
-## Run ZAP
+## run ZAP
 
-ZAP crawls the target and sends active test requests. Use a disposable environment. The ZAP container needs an address that it can reach.
+ZAP crawls the target and sends active test requests. use a disposable environment. the ZAP container needs an address that it can reach.
 
-1. Prepare the image with [Prepare ZAP](setup.md#prepare-zap).
-2. Start the target application.
-3. Run ZAP against the target address.
+1. prepare the image with [prepare ZAP](setup.md#prepare-zap).
+2. start the target application.
+3. run ZAP against the target address.
 
-	For an application on the host with Docker Desktop, use:
+	for an application on the host with Docker Desktop, use:
 
 	```sh
 	pug app http://host.docker.internal:8000 \
 		--allow-active --checks zap \
-		--timeout 10m --output pug-report-zap.json
+		--timeout 10m -o pug-report-zap.json
 	```
 
-On a Linux VPS, replace the URL with an address reachable from the ZAP container. Inside that container, `127.0.0.1` refers to the container itself. Pug does not configure Docker networking.
+on a Linux VPS, replace the URL with an address the ZAP container can reach. inside that container, `127.0.0.1` refers to the container itself. pug does not configure Docker networking.
 
-If setup used a custom image, pass the same `--zap-image` reference to the scan. ZAP uses `--pull=never`, so the image must already be installed.
+if setup used a custom image, pass the same `--zap-image` reference to the scan. ZAP uses `--pull=never`, so the image must already be installed.

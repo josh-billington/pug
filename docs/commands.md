@@ -1,8 +1,8 @@
-# Command reference
+# command reference
 
-Pug writes scan reports to stdout and diagnostics to stderr. Scan reports use JSON by default. Setup uses text by default and sends progress to stderr.
+pug writes scan reports to stdout and diagnostics to stderr. scan reports use JSON by default. setup uses text by default and sends progress to stderr.
 
-CLI definitions are in [`internal/cli/cli.go`](../internal/cli/cli.go) and [`internal/cli/setup.go`](../internal/cli/setup.go). The built binary exposes their current commands and flags:
+the command definitions are in [`internal/cli/cli.go`](../internal/cli/cli.go) and [`internal/cli/setup.go`](../internal/cli/setup.go). the built binary exposes the current commands and flags:
 
 ```sh
 pug --help
@@ -12,222 +12,224 @@ pug app --help
 pug sandbox --help
 ```
 
-## Commands
+## commands
 
-| Command | Purpose |
+| command | purpose |
 | --- | --- |
-| `pug setup` | Checks native scanners and installs missing tools for the current user. |
-| `pug doctor` | Lists executables found on `PATH` or in Pug's tool directory. It does not run version commands or check scanner databases. |
-| `pug scan DIRECTORY` | Scans the current working tree with the selected repository checks. |
-| `pug image NAME@sha256:DIGEST` | Runs Trivy vulnerability and misconfiguration checks. Trivy can fetch the image and database. |
-| `pug app URL --allow-active` | Runs the selected application checks against the target. |
-| `pug net IP --ports SPEC --expect PORTS --allow-active` | Scans TCP ports on one IP address and reports open ports that are not expected. |
-| `pug diff BEFORE.json AFTER.json` | Compares findings for the same target. |
-| `pug rules list` | Lists installed packs and built-in aliases as JSON, with paths, commits, profiles, and install state. |
-| `pug rules install NAME\|URL[@COMMIT]...` | Clones or updates upstream rule repositories with Git. |
-| `pug sandbox [FLAGS] -- COMMAND [ARGS...]` | Runs a command and an optional application in an offline container. |
-| `pug help [COMMAND]` | Prints help for Pug or a command. `--help` has the same purpose. |
-| `pug completion SHELL` | Generates a shell completion script. |
-| `pug --version` | Prints the build version. Local builds default to `dev`. |
+| `pug setup` | checks native scanners and installs missing tools for the current user. |
+| `pug doctor` | lists executables found on `PATH` or in pug's tool directory. it does not run version commands or check scanner databases. |
+| `pug scan [DIR]` | scans a working tree. the default directory is `.`. |
+| `pug image NAME@sha256:DIGEST` | runs trivy vulnerability and misconfiguration checks. trivy can fetch the image and database. |
+| `pug app URL --allow-active` | runs the selected application checks against the target. |
+| `pug net IP --ports SPEC --expect PORTS --allow-active` | scans TCP ports on one IP address and reports open ports that are not expected. |
+| `pug diff BEFORE.json AFTER.json` | compares findings for the same target. |
+| `pug rules list` | lists installed packs and built-in aliases as JSON, with paths, commits, profiles, and install state. |
+| `pug rules install NAME\|URL[@COMMIT]...` | clones or updates upstream rule repositories with git. |
+| `pug sandbox [FLAGS] -- COMMAND [ARGS...]` | runs a command and an optional application in an offline container. |
+| `pug help [COMMAND]` | prints help for pug or one command. `--help` has the same purpose. |
+| `pug completion SHELL` | generates a shell completion script. |
+| `pug --version` | prints the build version. local builds default to `dev`. |
 
-## Setup flags
+## setup flags
 
-| Flag | Default | Behavior |
+| flag | default | behavior |
 | --- | --- | --- |
-| `--check` | `false` | Checks tools without downloads or installations. |
-| `--tools` | `gitleaks,actionlint,opengrep,trivy,nuclei,schemathesis` | Selects at least one native scanner. `trufflehog` and `naabu` install only when named. Unknown or repeated names are invalid. |
-| `--with-zap` | `false` | Also checks the ZAP image and pulls it if missing. Requires a running Docker daemon. |
-| `--zap-image` | The tested image in [`internal/tools/tools.go`](../internal/tools/tools.go) | Selects the digest-pinned image for `--with-zap`. A custom image also needs `--zap-image` on `pug app`. |
-| `--timeout` | `10m` | Sets a deadline per selected tool installation. Valid values are greater than zero and at most `1h`. |
-| `--format` | `text` | Accepts `text` or `json`. Progress goes to stderr in both formats. |
+| `--check` | `false` | checks tools without downloads or installations. |
+| `--repo` | `false` | selects gitleaks, actionlint, opengrep, and trivy. those are the tools for the default repository checks. do not combine `--repo` with `--tools`. |
+| `--tools` | `gitleaks,actionlint,opengrep,trivy,nuclei,schemathesis` | selects at least one native scanner. `trufflehog` and `naabu` install only when named. unknown or repeated names are invalid. |
+| `--with-zap` | `false` | also checks the ZAP image and pulls it if missing. requires a running Docker daemon. |
+| `--zap-image` | the tested image in [`internal/tools/tools.go`](../internal/tools/tools.go) | selects the digest-pinned image for `--with-zap`. a custom image also needs `--zap-image` on `pug app`. |
+| `--timeout` | `10m` | sets the deadline for each selected tool installation. valid values are greater than zero and at most `1h`. |
+| `--format` | `text` | accepts `text` or `json`. progress goes to stderr in both formats. |
 
-Setup reuses working tools on `PATH` before checking Pug's tool directory. Existing tools are not upgraded or required to match the pinned versions. A failed version command marks the tool as failed. Setup continues with the remaining tools.
+setup reuses working tools on `PATH` before it checks pug's tool directory. existing tools are not upgraded, and they do not have to match the pinned versions. a failed version command marks the tool as failed. setup continues with the remaining tools.
 
-Docker and Git are optional for native scanner setup. With `--with-zap`, Docker and the image become required. Setup does not install Docker or Git, start daemons, or change group membership. A ZAP image marked ready has passed an image availability check, not a live scan.
+Docker and git are optional for native scanner setup. with `--with-zap`, Docker and the image become required. setup does not install Docker or git, start daemons, or change group membership. a ZAP image marked ready has passed an image availability check, not a live scan.
 
-### Setup results
+### setup results
 
-With `--format json`, setup returns these fields:
+with `--format json`, setup returns these fields:
 
-| Field | Meaning |
+| field | meaning |
 | --- | --- |
-| `ready` | Every selected native scanner runs, and any explicitly requested ZAP image is available through Docker. |
-| `home` | Pug's installation directory. |
-| `tools` | Selected native scanners, with `name`, `status`, and available `path`, `version`, or `detail` fields. |
-| `docker` | Docker daemon status. Values are `ready`, `missing`, or `unavailable`. |
-| `git` | Git status. Values are `ready`, `missing`, or `unavailable`. |
-| `zap` | Image status when `--with-zap` is set. Values are `ready` or `missing`. |
-| `next_step` | A command for the selected scanners, or instructions after a failure. |
+| `ready` | every selected native scanner runs, and any explicitly requested ZAP image is available through Docker. |
+| `home` | pug's installation directory. |
+| `tools` | selected native scanners, with `name`, `status`, and available `path`, `version`, or `detail` fields. |
+| `docker` | Docker daemon status. values are `ready`, `missing`, or `unavailable`. |
+| `git` | git status. values are `ready`, `missing`, or `unavailable`. |
+| `zap` | image status when `--with-zap` is set. values are `ready` or `missing`. |
+| `next_step` | a command for the selected scanners, or instructions after a failure. |
 
-Native scanner statuses are `ready`, `installed`, `missing`, or `failed`. Neither `ready` nor `installed` verifies scanner databases, schema files, or templates.
+native scanner statuses are `ready`, `installed`, `missing`, or `failed`. neither `ready` nor `installed` verifies scanner databases, schema files, or templates.
 
-### Tool paths and versions
+### tool paths and versions
 
-`PUG_HOME` selects Pug's installation directory and must be an absolute path. The default is `~/.local/share/pug`. Pug resolves bare tool names on `PATH` first, then in its own `bin` directory. Explicit executable paths do not use that fallback.
+`PUG_HOME` selects pug's installation directory and must be an absolute path. the default is `~/.local/share/pug`. pug resolves a bare tool name on `PATH` first, then in its own `bin` directory. an explicit executable path does not use that fallback.
 
-Automatic installation supports macOS and Linux with glibc, on amd64 and arm64. The binary release URLs and SHA-256 digests are in [`internal/setup/releases.json`](../internal/setup/releases.json).
+automatic installation supports macOS and Linux with glibc, on amd64 and arm64. the binary release URLs and SHA-256 digests are in [`internal/setup/releases.json`](../internal/setup/releases.json).
 
-| Missing tool | Version installed | Source |
+| missing tool | version installed | source |
 | --- | --- | --- |
-| Gitleaks | 8.30.1 | Upstream release binary |
-| TruffleHog | 3.99.7 | Upstream release binary |
-| Actionlint | 1.7.12 | Upstream release binary |
-| OpenGrep | 1.33.1 | Upstream release binary |
-| Trivy | 0.76.2 | Upstream release binary |
-| naabu | 2.7.0 | Upstream release binary, only with `--tools naabu` |
-| Nuclei | 3.11.1 | Upstream release binary |
-| Schemathesis | 4.33.2 | uv tool environment with managed Python 3.12 |
-| uv | 0.9.9 | Upstream release binary, only if Schemathesis needs it and uv is missing |
+| gitleaks | 8.30.1 | upstream release binary |
+| trufflehog | 3.99.7 | upstream release binary |
+| actionlint | 1.7.12 | upstream release binary |
+| opengrep | 1.33.1 | upstream release binary |
+| trivy | 0.76.2 | upstream release binary |
+| naabu | 2.7.0 | upstream release binary, only with `--tools naabu` |
+| nuclei | 3.11.1 | upstream release binary |
+| schemathesis | 4.33.2 | uv tool environment with managed Python 3.12 |
+| uv | 0.9.9 | upstream release binary, only if schemathesis needs it and uv is missing |
 
-Setup gets the Schemathesis version from [`internal/setup/setup.go`](../internal/setup/setup.go). The Python environment and uv cache also live under `PUG_HOME`. uv selects the transitive dependency versions during installation. Pug does not lock them.
+setup gets the schemathesis version from [`internal/setup/setup.go`](../internal/setup/setup.go). the Python environment and uv cache also live under `PUG_HOME`. uv selects the transitive dependency versions during installation. pug does not lock them.
 
-The release URLs and Schemathesis pin are visible with:
+the release URLs and the schemathesis pin are visible with:
 
 ```sh
 rg -n '"url"|schemathesis==' internal/setup/releases.json internal/setup/setup.go
 ```
 
-The following commands expose the selected defaults and the tools available on the current machine:
+these commands show the selected defaults and the tools available on the current machine:
 
 ```sh
 pug setup --help
 pug setup --check --format json
 ```
 
-## Checks
+## checks
 
-| Check | Tool | Scope |
+| check | tool | scope |
 | --- | --- | --- |
-| `source` | OpenGrep | The rules selected with `--rules`. The default starter rules cover JavaScript `eval`, Python shell and pickle calls, and Go shell calls. |
-| `secrets` | Gitleaks | Current directory contents. Pug excludes Git history, secret values, and source snippets from the report. |
-| `secrets-history` | TruffleHog | Committed Git history on every ref, not uncommitted changes. The target must be the repository root. TruffleHog runs with `--no-verification` and `--no-update`, so it sends no candidate secrets to providers. The `URI` detector is excluded because it flags every URL with embedded credentials, including test fixtures. Pug keeps the detector, file, line, and commit, and drops secret values and committer details. Opt-in only. |
-| `dependencies` | Trivy | Vulnerabilities in supported dependency manifests and lockfiles. |
-| `actions` | Actionlint | GitHub Actions syntax, expressions, and action metadata. Shellcheck and Pyflakes subprocesses are disabled. |
-| `infra` | Trivy | Supported infrastructure and container configuration checks. |
-| `image` | Trivy | Container image vulnerabilities and misconfigurations. |
-| `api` | Schemathesis | API contract checks and input fuzzing based on the supplied local schema. |
-| `exposure` | Nuclei | Supplied local HTTP templates. Redirects and Interactsh callbacks are disabled. |
-| `zap` | Docker and ZAP | Full scan using a preinstalled digest-pinned ZAP image. |
-| `ports` | naabu | TCP connect scan of `--ports` and `--expect` on one IP address. Open ports outside `--expect` are medium findings. If no expected port answers, the check fails, because a down or filtered host looks the same as a closed one. |
+| `source` | opengrep | the rules selected with `--rules`. the default starter rules cover JavaScript `eval`, Python shell and pickle calls, and go shell calls. |
+| `secrets` | gitleaks | current directory contents. pug excludes git history, secret values, and source snippets from the report. |
+| `secrets-history` | trufflehog | committed git history on every ref, not uncommitted changes. the target must be the repository root. trufflehog runs with `--no-verification` and `--no-update`, so it sends no candidate secrets to providers. the `URI` detector is excluded because it flags every URL with embedded credentials, including test fixtures. pug keeps the detector, file, line, and commit, and drops secret values and committer details. opt-in only. |
+| `dependencies` | trivy | vulnerabilities in supported dependency manifests and lockfiles. |
+| `actions` | actionlint | GitHub Actions syntax, expressions, and action metadata. shellcheck and pyflakes subprocesses are disabled. |
+| `infra` | trivy | supported infrastructure and container configuration checks. |
+| `image` | trivy | container image vulnerabilities and misconfigurations. |
+| `api` | schemathesis | API contract checks and input fuzzing from the supplied local schema. |
+| `exposure` | nuclei | supplied local HTTP templates. redirects and Interactsh callbacks are disabled. |
+| `zap` | Docker and ZAP | full scan using a preinstalled digest-pinned ZAP image. |
+| `ports` | naabu | TCP connect scan of `--ports` and `--expect` on one IP address. open ports outside `--expect` are medium findings. if no expected port answers, the check fails, because a down or filtered host looks the same as a closed one. |
 
-Repository defaults are `source,secrets,dependencies,actions,infra`. Add `secrets-history` with `--checks` after `pug setup --tools trufflehog`. Application defaults are `api,exposure`. `pentest` appears in `not_tested` because Pug supplies no autonomous pentesting agent.
+repository defaults are `source,secrets,dependencies,actions,infra`. add `secrets-history` with `--checks` after `pug setup --tools trufflehog`. application defaults are `api,exposure`. `pentest` appears in `not_tested` because pug supplies no autonomous pentesting agent.
 
-### Rule packs
+### rule packs
 
-| Alias | Clone URL |
+| alias | clone URL |
 | --- | --- |
 | `opengrep` | `https://github.com/opengrep/opengrep-rules.git` |
 | `amplify` | `https://github.com/amplify-security/opengrep-rules.git` |
 | `aikido` | `https://github.com/AikidoSec/opengrep-rules.git` |
 
-`pug rules install` requires Git; `pug doctor` checks whether it is available. Pass an alias, `github.com/owner/repo`, or an HTTPS Git URL. A `file://` URL can use a local mirror. For URLs, the install name is the repository's final path component without `.git`. Invalid names and names reserved for built-in aliases are usage errors. URLs must not contain credentials, a query, or a fragment.
+`pug rules install` requires git. `pug doctor` checks whether git is available. pass an alias, `github.com/owner/repo`, or an HTTPS git URL. a `file://` URL can use a local mirror. for a URL, the install name is the repository's final path component without `.git`. an invalid name, or a name reserved for a built-in alias, is a usage error. a URL must not contain credentials, a query, or a fragment.
 
-Without `@COMMIT`, each install clones the remote default branch HEAD, including when the pack is already installed. Append a full commit ID to select a revision. Pug clones into a temporary directory under `PUG_HOME/rules` and replaces `PUG_HOME/rules/NAME` after Git succeeds. `--timeout` (default `5m`) limits each repository install. Pug records no separate manifest; it reads the commit from the checkout.
+without `@COMMIT`, each install clones the remote default branch HEAD, including when the pack is already installed. append a full commit ID to select a revision. pug clones into a temporary directory under `PUG_HOME/rules` and replaces `PUG_HOME/rules/NAME` after git succeeds. `--timeout` defaults to `5m` and limits each repository install. pug records no separate manifest. it reads the commit from the checkout.
 
-A pack can also be a local directory. Pug selects regular `.yml` and `.yaml` rule files anywhere in it, excluding hidden directories, symlinks, test fixtures (`*.test.yml`, `*.test.yaml`, `*.fixed.*`), and YAML without a top-level `rules` list. A file with a top-level `rules` list that is invalid, such as a rule without an `id`, is a usage error that names the file. Each selected file has a 16 MiB limit. Profiles come from `configs/*.list`. A pack without an explicit profile uses `configs/default.list` if present, otherwise every rule file.
+a pack can also be a local directory. pug selects regular `.yml` and `.yaml` rule files anywhere in it. it excludes hidden directories, symlinks, test fixtures (`*.test.yml`, `*.test.yaml`, `*.fixed.*`), and YAML without a top-level `rules` list. a file with a top-level `rules` list that is invalid, such as a rule without an `id`, is a usage error that names the file. each selected file has a 16 MiB limit. profiles come from `configs/*.list`. a pack without an explicit profile uses `configs/default.list` if that file is present. otherwise it uses every rule file.
 
-Pug qualifies pack rule IDs so they stay the same across profiles and do not collide. A pack rule ID is the pack name, the rule file's path with dots for slashes and without its extension, and the upstream ID when it differs from the file name. For example, rule `no-eval` in `team/python/no-eval.yaml` from pack `mypack` becomes `mypack.team.python.no-eval`. A directory path uses its base name as the pack name. Starter and local file rules keep their IDs. Pug combines all selected rules into one config for each scan. A rule that several values select runs once.
+pug qualifies pack rule IDs so they stay the same across profiles and do not collide. a pack rule ID is the pack name, the rule file's path with dots for slashes and without its extension, and the upstream ID when it differs from the file name. for example, rule `no-eval` in `team/python/no-eval.yaml` from pack `mypack` becomes `mypack.team.python.no-eval`. a directory path uses its base name as the pack name. starter rules and local file rules keep their IDs. pug combines the selected rules into one config for each scan. a rule that several values select runs once.
 
-Some profile entries name files that are absent from the checkout. Pug skips them and counts them in the check's reason. The report lists them in `rules.unresolved`.
+some profile entries name files that are absent from the checkout. pug skips those entries and counts them in the check's reason. the report lists them in `rules.unresolved`.
 
-### Port scan limits
+### port scan limits
 
-`pug net` accepts one literal IPv4 or IPv6 address. Hostnames, ranges, and zoned addresses are invalid. `--ports` takes numbers and ranges from 1 to 65535, such as `22,80,8000-8100`. naabu also scans every `--expect` port. `--fail-on` defaults to `medium` for `pug net`, so an unexpected open port exits with code `1`.
+`pug net` accepts one literal IPv4 or IPv6 address. hostnames, ranges, and zoned addresses are invalid. `--ports` takes numbers and ranges from 1 to 65535, such as `22,80,8000-8100`. naabu also scans every `--expect` port. `--fail-on` defaults to `medium` for `pug net`, so an unexpected open port exits with code `1`.
 
-naabu runs a TCP connect scan at 500 packets per second with its default three retries, and with host discovery and update checks off. A scan of all 65535 ports, or of a host that drops packets, can exceed the default five-minute `--timeout`. A timed-out scan is incomplete. Pug never passes naabu's passive (Shodan), cloud upload, proxy, or nmap options. naabu runs with `HOME` and `XDG_CONFIG_HOME` set to a private temporary directory, including for version checks, and with `DISABLE_CLOUD_UPLOAD=true`. UDP and service identification are not tested.
+naabu runs a TCP connect scan at 500 packets per second with its default three retries. host discovery and update checks are off. a scan of all 65535 ports, or of a host that drops packets, can exceed the default five-minute `--timeout`. a timed-out scan is incomplete. pug does not pass naabu's passive (Shodan), cloud upload, proxy, or nmap options. naabu runs with `HOME` and `XDG_CONFIG_HOME` set to a private temporary directory, including for version checks, and with `DISABLE_CLOUD_UPLOAD=true`. UDP and service identification are not tested.
 
-### Application check limits
+### application check limits
 
-Schemathesis uses one worker, 25 examples per operation, no redirects, and a limit of ten requests per second. Nuclei disables redirects and out-of-band callbacks, uses one concurrent template, and limits requests to five per second.
+schemathesis uses one worker, 25 examples per operation, no redirects, and a limit of ten requests per second. nuclei disables redirects and out-of-band callbacks, uses one concurrent template, and limits requests to five per second.
 
-ZAP runs `zap-full-scan.py`, including active checks. The adapter sets a one-minute spider duration with `-m 1`. The Pug `--timeout` applies to the whole check. Target URL validation does not restrict outbound network access.
+ZAP runs `zap-full-scan.py`, including active checks. the adapter sets a one-minute spider duration with `-m 1`. the pug `--timeout` applies to the whole check. target URL validation does not restrict outbound network access.
 
-These values come from [`internal/scanner/scanner.go`](../internal/scanner/scanner.go) and are visible with:
+these values come from [`internal/scanner/scanner.go`](../internal/scanner/scanner.go) and are visible with:
 
 ```sh
 rg -n -- '--?(max-redirects|workers|max-examples|rate-limit|concurrency)|"-m", "1"' internal/scanner/scanner.go
 ```
 
-The live application tests in [`internal/scanner/scanner_integration_test.go`](../internal/scanner/scanner_integration_test.go) cover local fixtures.
+the live application tests in [`internal/scanner/scanner_integration_test.go`](../internal/scanner/scanner_integration_test.go) cover local fixtures.
 
-## Scan flags
+## scan flags
 
-| Flag | Applies to | Default | Behavior |
+| flag | applies to | default | behavior |
 | --- | --- | --- | --- |
-| `--format` | `scan`, `image`, `app` | `json` | Accepts `json` or `text`. |
-| `--output` | `scan`, `image`, `app` | Unset | Also saves the report. The parent directory must exist. |
-| `--fail-on` | `scan`, `image`, `app` | `high` | Minimum severity that produces exit code `1`. Accepts `info`, `low`, `medium`, `high`, `critical`, or `none`. |
-| `--timeout` | `scan`, `image`, `app` | `5m` | Sets a positive deadline per scanner, including its version lookup. |
-| `--checks` | `scan`, `app` | Target defaults | Selects checks by name. Duplicate or unsupported names are invalid. |
-| `--rules` | `scan` | `starter` | Selects the `source` rules. Accepts `starter`, an installed pack, `NAME:PROFILE`, a reviewed local rules file, or `DIR[:PROFILE]`. A value that ends in `.yml` or `.yaml` or contains a path separator is a path. Repeat the flag or separate values with commas. |
-| `--allow-active` | `app` | `false` | Required for every application scan. |
-| `--schema` | `app` | Unset | Supplies the local OpenAPI schema for `api`. |
-| `--templates` | `app` | Unset | Supplies the reviewed local templates for `exposure`. |
-| `--zap-image` | `app` | The tested image in [`internal/tools/tools.go`](../internal/tools/tools.go) | Selects a preinstalled digest-pinned image for `zap`. |
+| `--format`, `-f` | `scan`, `image`, `app`, `net` | `json` | accepts `json` or `text`. |
+| `--output`, `-o` | `scan`, `image`, `app`, `net` | unset | also saves the report. the parent directory must exist. |
+| `--fail-on` | `scan`, `image`, `app`, `net` | `high`, or `medium` for `net` | minimum severity that produces exit code `1`. accepts `info`, `low`, `medium`, `high`, `critical`, or `none`. |
+| `--timeout` | `scan`, `image`, `app`, `net` | `5m` | sets a positive deadline for each scanner, including its version lookup. |
+| `--checks`, `-c` | `scan` | repository defaults | selects checks by name. `-c` applies to `scan` only. duplicate or unsupported names are invalid. |
+| `--checks` | `app` | `api,exposure` | selects `api`, `exposure`, or `zap`. |
+| `--rules` | `scan` | `starter` | selects the `source` rules. accepts `starter`, an installed pack, `NAME:PROFILE`, a reviewed local rules file, or `DIR[:PROFILE]`. a value that ends in `.yml` or `.yaml`, or that contains a path separator, is a path. repeat the flag or separate values with commas. |
+| `--allow-active` | `app`, `net` | `false` | required for every application test and port scan. |
+| `--schema` | `app` | unset | supplies the local OpenAPI schema for `api`. |
+| `--templates` | `app` | unset | supplies the reviewed local templates for `exposure`. |
+| `--zap-image` | `app` | the tested image in [`internal/tools/tools.go`](../internal/tools/tools.go) | selects a preinstalled digest-pinned image for `zap`. |
 
-An invalid pack or profile name, a missing local rules path, a profile absent from an installed pack, or two different rules with the same ID is a usage error. A selected pack that is not installed skips `source` and makes the report incomplete. A missing schema or template option skips the check that needs it and makes the report incomplete. A supplied path that does not exist is a usage error. An unavailable ZAP image makes the check fail. The ZAP container uses `--pull=never`. Trivy's `image` check can fetch its target image.
+an invalid pack or profile name is a usage error. a missing local rules path, a profile absent from an installed pack, or two different rules with the same ID is also a usage error. a selected pack that is not installed skips `source` and makes the report incomplete. a missing schema or template option skips the check that needs it and makes the report incomplete. a supplied path that does not exist is a usage error. an unavailable ZAP image makes the check fail. the ZAP container uses `--pull=never`. trivy's `image` check can fetch its target image.
 
-Image references require a lowercase, 64-character SHA-256 digest. Application targets must be absolute HTTP or HTTPS URLs without embedded credentials, query parameters, or fragments.
+an image reference requires a lowercase, 64-character SHA-256 digest. an application target must be an absolute HTTP or HTTPS URL without embedded credentials, a query, or a fragment.
 
-## Sandbox flags
+## sandbox flags
 
-| Flag | Default | Behavior |
+| flag | default | behavior |
 | --- | --- | --- |
-| `--repo` | `.` | Selects the root of a Git checkout with a commit and no changes to tracked files. |
-| `--image` | Unset | Requires a preinstalled image pinned by digest. Docker uses `--pull=never`. |
-| `--app-command` | Unset | Accepts an application command as a JSON array of arguments. |
-| `--timeout` | `2m` | Limits the run, including snapshot preparation. Valid values are greater than zero and at most `30m`. |
-| `--format` | `json` | Accepts `json` or `text`. |
-| `--output` | Unset | Also saves the report. |
+| `--repo` | `.` | selects the root of a git checkout with a commit and no changes to tracked files. |
+| `--image` | unset | requires a preinstalled image pinned by digest. Docker uses `--pull=never`. |
+| `--app-command` | unset | accepts an application command as a JSON array of arguments. |
+| `--timeout` | `2m` | limits the run, including snapshot preparation. valid values are greater than zero and at most `30m`. |
+| `--format` | `json` | accepts `json` or `text`. |
+| `--output` | unset | also saves the report. |
 
-The image supplies `/bin/sh`, `mkdir`, `cp`, and the command's dependencies. Pug replaces the image's entrypoint with its launcher. The application starts beside the command. The command must wait for application readiness.
+the image supplies `/bin/sh`, `mkdir`, `cp`, and the command's dependencies. pug replaces the image entrypoint with its launcher. the application starts beside the command. the command must wait until the application is ready.
 
-The command works on a source copy in `/scratch/work`. `/source` holds the read-only staged copy. Pug does not copy files back to the host checkout.
+the command works on a source copy in `/scratch/work`. `/source` holds the read-only staged copy. pug does not copy files back to the host checkout.
 
-## Exit codes
+## exit codes
 
-| Code | Meaning |
+| code | meaning |
 | --- | --- |
-| `0` | A utility command completed, setup is ready, or requested scan checks completed without findings at the threshold. |
-| `1` | Findings meet the threshold, or another runtime operation failed. |
-| `2` | Command arguments, options, or flags are invalid. |
-| `3` | Requested scan coverage or setup is incomplete. |
-| `130` | A handled signal cancelled the operation. A running scan emits its partial report. |
+| `0` | a utility command completed, setup is ready, or the requested scan checks completed without findings at the threshold. |
+| `1` | findings meet the threshold, or another runtime operation failed. |
+| `2` | command arguments, options, or flags are invalid. |
+| `3` | requested scan coverage or setup is incomplete. |
+| `130` | a handled signal cancelled the operation. a running scan emits its partial report. |
 
-Incomplete scan coverage takes precedence over a finding exit code. A report can contain findings when the process exits with code `3`. `--fail-on none` disables finding failures but does not suppress incomplete coverage.
+incomplete scan coverage takes precedence over a finding exit code. a report can contain findings when the process exits with code `3`. `--fail-on none` disables finding failures. it does not suppress incomplete coverage.
 
-## Scan report fields
+## scan report fields
 
-Reports use the schema in [`internal/report/report.go`](../internal/report/report.go).
+reports use the schema in [`internal/report/report.go`](../internal/report/report.go).
 
-| Field | Meaning |
+| field | meaning |
 | --- | --- |
-| `schema_version` | Report format version. The current value is `"1"`. |
-| `pug_version` | Pug's build version. |
-| `target` | Repository path, image reference, or application URL. |
-| `started_at`, `finished_at` | Report timestamps in UTC. |
-| `complete` | All requested checks completed. This does not describe complete security coverage. |
-| `checks` | Check results with status, tool, timestamps, exit code, findings, and available version information. |
-| `not_tested` | Requested checks that did not complete and categories that were not requested. |
-| `limitations` | Limits that affect the interpretation of the results. |
+| `schema_version` | report format version. the current value is `"1"`. |
+| `pug_version` | pug's build version. |
+| `target` | repository path, image reference, or application URL. |
+| `started_at`, `finished_at` | report timestamps in UTC. |
+| `complete` | all requested checks completed. this does not describe complete security coverage. |
+| `checks` | check results with status, tool, timestamps, exit code, findings, and available version information. |
+| `not_tested` | requested checks that did not complete, and categories that were not requested. |
+| `limitations` | limits that affect how you read the results. |
 
-Check statuses are `completed`, `failed`, `unavailable`, or `skipped`. A `source` check completes when OpenGrep could only partly parse some target files, such as templates or files with syntax errors. Its reason counts the warnings. An invalid rule fails the check. Successful report parsing records `evidence_sha256`, a SHA-256 hash of the scanner report. The sandbox hashes command stdout instead. Neither hash authenticates its source.
+check statuses are `completed`, `failed`, `unavailable`, or `skipped`. a `source` check completes when opengrep could only partly parse some target files, such as templates or files with syntax errors. its reason counts the warnings. an invalid rule fails the check. successful report parsing records `evidence_sha256`, a SHA-256 hash of the scanner report. the sandbox hashes command stdout instead. neither hash authenticates its source.
 
-The `source` check also records `rules`. It holds the `--rules` values, the commit of each Git checkout, the rule count, any `unresolved` profile entries, and `sha256`, the hash of the combined rules config.
+the `source` check also records `rules`. that object holds the `--rules` values, the commit of each git checkout, the rule count, any `unresolved` profile entries, and `sha256`, the hash of the combined rules config.
 
-Pug deletes temporary scanner reports after each check. Recorded commands can contain paths to those deleted reports. Saved reports use atomic replacement and mode `0600` on POSIX filesystems. Imported reports have a 32 MiB limit and validated finding fingerprints.
+pug deletes temporary scanner reports after each check. recorded commands can contain paths to those deleted reports. saved reports use atomic replacement and mode `0600` on POSIX filesystems. imported reports have a 32 MiB limit and validated finding fingerprints.
 
-Finding fingerprints include the check, tool, rule, location, line number, and message. The same evidence produces the same fingerprint. Moving a line or changing a scanner message can change the fingerprint.
+a finding fingerprint includes the check, tool, rule, location, line number, and message. the same evidence produces the same fingerprint. moving a line, or changing a scanner message, can change the fingerprint.
 
-### Report comparison
+### report comparison
 
-`diff` requires the same target in both reports and classifies findings as follows:
+`diff` requires the same target in both reports. it classifies findings as follows:
 
-| Category | Meaning |
+| category | meaning |
 | --- | --- |
-| `new` | The finding appears only in the later report. |
-| `persistent` | The finding appears in both reports. |
-| `absent` | The later completed check ran the same rules and did not report the finding. This does not prove a fix. |
-| `unverified` | The later report does not complete the check needed to evaluate the missing finding, or the check ran different rules. |
+| `new` | the finding appears only in the later report. |
+| `persistent` | the finding appears in both reports. |
+| `absent` | the later completed check ran the same rules and did not report the finding. this does not prove a fix. |
+| `unverified` | the later report does not complete the check needed to evaluate the missing finding, or the check ran different rules. |
 
-Pug compares rules by the `rules.sha256` of each check. Database changes can affect comparisons. The [Verification record](verification.md) lists tested scanner versions and results. The [Security boundaries](security.md) explain coverage and isolation limits.
+pug compares rules by the `rules.sha256` of each check. a database change can affect a comparison. the [verification record](verification.md) lists tested scanner versions and results. [security boundaries](security.md) explains coverage and isolation limits.

@@ -161,11 +161,11 @@ func TestNextStepUsesOnlyPreparedChecks(t *testing.T) {
 		tools []string
 		want  string
 	}{
-		{NativeTools, "pug scan . --output pug-report.json"},
-		{[]string{"gitleaks"}, "pug scan . --checks secrets --output pug-report.json"},
-		{[]string{"trufflehog"}, "pug scan . --checks secrets-history --output pug-report.json"},
+		{NativeTools, "pug scan -o pug-report.json"},
+		{[]string{"gitleaks"}, "pug scan -c secrets -o pug-report.json"},
+		{[]string{"trufflehog"}, "pug scan -c secrets-history -o pug-report.json"},
 		{[]string{"naabu"}, "pug net 127.0.0.1 --ports 1-1024 --expect 22 --allow-active"},
-		{[]string{"trivy"}, "pug scan . --checks dependencies,infra --output pug-report.json"},
+		{[]string{"trivy"}, "pug scan -c dependencies,infra -o pug-report.json"},
 		{[]string{"nuclei"}, "pug app http://127.0.0.1:8000 --allow-active --checks exposure --templates /path/to/reviewed-templates"},
 	} {
 		if got := nextStep(tc.tools); got != tc.want {
