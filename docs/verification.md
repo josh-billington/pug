@@ -1,10 +1,10 @@
-# Verification record
+# verification record
 
-This record describes runs completed on November 10, 2026. Results depend on the tested tools, rules, databases, inputs, and host. The initial runs used an Apple silicon Mac with Go 1.27.2. Additional Docker checks used a native Linux daemon as described below.
+this record describes runs completed on November 10, 2026, plus the rule-pack runs on November 16, 2026. results depend on the tested tools, rules, databases, inputs, and host. the initial runs used an Apple silicon Mac with go 1.27.2. additional Docker checks used a native Linux daemon as described below.
 
-## Automated checks
+## automated checks
 
-These commands passed during local verification:
+these commands passed during local verification:
 
 ```sh
 make check
@@ -17,124 +17,124 @@ CGO_ENABLED=0 GOOS=windows GOARCH=amd64 \
 	go build -trimpath -o /tmp/pug-windows-amd64.exe ./cmd/pug
 ```
 
-The Linux amd64 and Windows binaries compiled but were not executed. The GitHub workflow in [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) runs formatting checks, vet, race tests, and a Linux build. The workflow had not run on GitHub when this record was written.
+the Linux amd64 and Windows binaries compiled but were not executed. the GitHub workflow in [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) runs formatting checks, vet, race tests, and a Linux build. the workflow had not run on GitHub when this record was written.
 
-## Native scanner results
+## native scanner results
 
-The integration runs used OpenGrep 1.33.1, Gitleaks 8.30.1, Actionlint 1.7.12, Trivy 0.76.2, Schemathesis 4.33.2, and Nuclei 3.11.1.
+the integration runs used opengrep 1.33.1, gitleaks 8.30.1, actionlint 1.7.12, trivy 0.76.2, schemathesis 4.33.2, and nuclei 3.11.1.
 
-| Check | Observed result |
+| check | observed result |
 | --- | --- |
-| Gitleaks | Detected a generated fake token, withheld its value, and reported it absent after file removal and a successful retest. |
-| TruffleHog 3.99.7 | On macOS arm64, reported a clean history as clean. Detected a fake token that existed only in a deleted commit, reported that commit, and withheld the token and committer email. Also completed with network access denied. |
-| Actionlint | Detected invalid workflow expressions. |
-| OpenGrep | Detected JavaScript `eval` in a temporary fixture. |
-| Trivy configuration | Detected two Dockerfile misconfigurations using embedded checks. |
-| Trivy dependencies | Detected four vulnerability findings in a deliberately old Lodash lockfile. |
-| Schemathesis | Sent requests to a local fixture server and detected invalid API responses. |
-| Nuclei | Sent an HTTP request with a local template and detected the fixture's exposure marker. |
-| naabu 2.7.0 | On macOS arm64, found an unexpected local listener, and marked a scan incomplete when the expected port was closed. Wrote no configuration under `~/.config` or `~/Library/Application Support` during scans or setup version checks. |
+| gitleaks | detected a generated fake token, withheld its value, and reported it absent after file removal and a successful retest. |
+| trufflehog 3.99.7 | on macOS arm64, reported a clean history as clean. detected a fake token that existed only in a deleted commit, reported that commit, and withheld the token and committer email. also completed with network access denied. |
+| actionlint | detected invalid workflow expressions. |
+| opengrep | detected JavaScript `eval` in a temporary fixture. |
+| trivy configuration | detected two Dockerfile misconfigurations using embedded checks. |
+| trivy dependencies | detected four vulnerability findings in a deliberately old Lodash lockfile. |
+| schemathesis | sent requests to a local fixture server and detected invalid API responses. |
+| nuclei | sent an HTTP request with a local template and detected the fixture's exposure marker. |
+| naabu 2.7.0 | on macOS arm64, found an unexpected local listener, and marked a scan incomplete when the expected port was closed. wrote no configuration under `~/.config` or `~/Library/Application Support` during scans or setup version checks. |
 
-The fixtures exist in temporary test directories. The tests generate fake secrets and do not use real credentials. The tests and their observed counts are available through:
+the fixtures exist in temporary test directories. the tests generate fake secrets and do not use real credentials. the tests and their observed counts are available through:
 
 ```sh
 go test -tags=integration ./internal/scanner \
 	-run 'TestRealRepositoryScanners|TestRealSecretsHistory|TestRealPortScan|TestRealApplicationScanners' -v -count=1 -timeout=15m
 ```
 
-Counts can change when scanner rules or databases change.
+counts can change when scanner rules or databases change.
 
-Trivy's native OCI downloads stalled on this host. The vulnerability database was downloaded from the upstream registry with `curl`. Its SHA-256 hash matched the OCI layer digest before installation in Trivy's cache. The database reported an update time of November 10, 2026.
+trivy's native OCI downloads stalled on this host. the vulnerability database was downloaded from the upstream registry with `curl`. its SHA-256 hash matched the OCI layer digest before installation in trivy's cache. the database reported an update time of November 10, 2026.
 
-The integration runs disabled further database updates and used Trivy's embedded infrastructure checks. Those runs did not verify Trivy's native registry download path.
+the integration runs disabled further database updates and used trivy's embedded infrastructure checks. those runs did not verify trivy's native registry download path.
 
-A self-scan completed the default repository checks without findings in the Pug report. That result covers only the files and scanner inputs tested.
+a self-scan completed the default repository checks without findings in the pug report. that result covers only the files and scanner inputs tested.
 
-## Error handling and snapshot tests
+## error handling and snapshot tests
 
-Automated tests cover incomplete scan coverage for unavailable tools, failed processes, malformed reports, skipped API cases, and scanner finding exit codes without findings. They also cover cancellation, output limits, private report files, symlink-safe report replacement, fingerprint validation, and retests after failed checks.
+automated tests cover incomplete scan coverage for unavailable tools, failed processes, malformed reports, skipped API cases, and scanner finding exit codes without findings. they also cover cancellation, output limits, private report files, symlink-safe report replacement, fingerprint validation, and retests after failed checks.
 
-Git fixture tests verify that sandbox snapshots exclude untracked files and common credential filenames, preserve tracked source, and reject dirty tracked checkouts and tracked symlinks. A POSIX shell test checks that command arguments remain literal.
+git fixture tests verify that sandbox snapshots exclude untracked files and common credential filenames, preserve tracked source, and reject dirty tracked checkouts and tracked symlinks. a POSIX shell test checks that command arguments remain literal.
 
-## Live Docker verification
+## live Docker verification
 
-The sandbox isolation and timeout tests passed with Docker 29.1.3 and this locally installed image:
+the sandbox isolation and timeout tests passed with Docker 29.1.3 and this locally installed image:
 
 ```sh
 PUG_TEST_SANDBOX_IMAGE=node@sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402 \
 	go test -tags=integration ./internal/sandbox -run TestDocker -v -count=1
 ```
 
-The isolation test read tracked source and verified UID 65534. It rejected writes to the source mount and root filesystem, found no Docker socket or Ethernet interface, verified loopback access, and wrote to scratch. The timeout test stopped a long-running command and confirmed cleanup. No Pug test containers remained afterward.
+the isolation test read tracked source and verified UID 65534. it rejected writes to the source mount and root filesystem, found no Docker socket or Ethernet interface, verified loopback access, and wrote to scratch. the timeout test stopped a long-running command and confirmed cleanup. no pug test containers remained afterward.
 
-A `pug image` scan also completed against the pinned Node image with the cached vulnerability database and embedded infrastructure checks. These runs did not pull a sandbox image or change existing application containers.
+a `pug image` scan also completed against the pinned Node image with the cached vulnerability database and embedded infrastructure checks. these runs did not pull a sandbox image or change existing application containers.
 
-## Live ZAP verification
+## live ZAP verification
 
-Pug ran the ZAP full scan against a temporary HTTP fixture through Docker Desktop with this locally installed image:
+pug ran the ZAP full scan against a temporary HTTP fixture through Docker Desktop with this locally installed image:
 
 ```sh
 PUG_TEST_ZAP_IMAGE=ghcr.io/zaproxy/zaproxy@sha256:9624669db72f54d86c4b46a7064518bd9bf79d8c61a4c31befa9923489f328af \
 	go test -tags=integration ./internal/scanner -run '^TestRealZAP$' -v -count=1 -timeout=12m
 ```
 
-ZAP sent 249 requests, and Pug normalized 23 findings. The scan finished in 51 seconds. ZAP returned exit code `2` for warnings, which Pug accepted. Pug read the JSON report, recorded its SHA-256 hash, and removed the container.
+ZAP sent 249 requests, and pug normalized 23 findings. the scan finished in 51 seconds. ZAP returned exit code `2` for warnings, which pug accepted. pug read the JSON report, recorded its SHA-256 hash, and removed the container.
 
-The fixture serves static HTML without security headers. The test verifies requests reaching the fixture, completed coverage, finding fingerprints, and a report hash. It uses `host.docker.internal` and a temporary host listener reachable by Docker Desktop. It does not measure production application coverage.
+the fixture serves static HTML without security headers. the test verifies requests reaching the fixture, completed coverage, finding fingerprints, and a report hash. it uses `host.docker.internal` and a temporary host listener reachable by Docker Desktop. it does not measure production application coverage.
 
-The sandbox and ZAP tests skip when their respective image variables are unset. A default integration run does not start containers.
+the sandbox and ZAP tests skip when their image variables are unset. a default integration run does not start containers.
 
-## Additional Docker and ZAP checks
+## additional Docker and ZAP checks
 
-On November 10, 2026, `TestDockerIsolation` and `TestDockerTimeout` passed on Docker Desktop (Docker 29.1.3), including with `umask 077`. They also passed on a native Linux Docker daemon (docker-in-docker, arm64), run as UID 65534 with `umask 077`. These checks verify that snapshot permissions no longer depend on the host umask and that container removal tolerates Docker's own `--rm` cleanup.
+on November 10, 2026, `TestDockerIsolation` and `TestDockerTimeout` passed on Docker Desktop (Docker 29.1.3), including with `umask 077`. they also passed on a native Linux Docker daemon (docker-in-docker, arm64), run as UID 65534 with `umask 077`. these checks verify that snapshot permissions no longer depend on the host umask and that container removal tolerates Docker's own `--rm` cleanup.
 
-`TestZAPWorkspaceCleanup` passed on that native Linux daemon. A container running as UID 1000 created a locked nested directory that the host user could not remove; the fallback cleanup container removed it. On Docker Desktop, the test skips because file sharing maps container-written files to the host user. The cleanup command also emptied a mount using the real ZAP image's GNU find and correctly failed for a directory owned by a different UID.
+`TestZAPWorkspaceCleanup` passed on that native Linux daemon. a container running as UID 1000 created a locked nested directory that the host user could not remove. the fallback cleanup container removed it. on Docker Desktop, the test skips because file sharing maps container-written files to the host user. the cleanup command also emptied a mount using the real ZAP image's GNU find and correctly failed for a directory owned by a different UID.
 
-`TestRealZAP` passed in 2 of 4 runs. In the 2 failures, ZAP itself exited with code `3` after about 22 requests, before report parsing. The failures were not reproducible by hand. Pug does not currently record scanner stderr in the report.
+`TestRealZAP` passed in 2 of 4 runs. in the 2 failures, ZAP itself exited with code `3` after about 22 requests, before report parsing. the failures were not reproducible by hand. pug does not currently record scanner stderr in the report.
 
 ## CLI setup verification
 
-The setup runs produced these results:
+the setup runs produced these results:
 
-| Environment or check | Observed result |
+| environment or check | observed result |
 | --- | --- |
-| macOS arm64, empty temporary `PUG_HOME`, restricted `PATH` | Installed the native scanners. Each binary passed its version check. Setup installed uv and managed Python for Schemathesis. |
-| macOS repeat run | Reused the installed scanners. `doctor` found them without `PATH` changes. A scan used the managed Gitleaks executable, detected a generated fake token, and withheld its value. |
-| Linux arm64, Debian Bookworm container | Installed OpenGrep and Schemathesis, and reused the other managed scanners from an earlier partial run. The unprivileged container had no host Docker socket, a read-only root filesystem, and a writable temporary tool directory. |
-| Alpine container | The selected OpenGrep and uv binaries failed because they require glibc. Setup then gained a check for musl-only Linux. An offline run confirmed the glibc error before downloads. |
-| `setup --check --with-zap --format json` | Reported the existing pinned ZAP image ready without pulling it. |
+| macOS arm64, empty temporary `PUG_HOME`, restricted `PATH` | installed the native scanners. each binary passed its version check. setup installed uv and managed Python for schemathesis. |
+| macOS repeat run | reused the installed scanners. `doctor` found them without `PATH` changes. a scan used the managed gitleaks executable, detected a generated fake token, and withheld its value. |
+| Linux arm64, Debian Bookworm container | installed opengrep and schemathesis, and reused the other managed scanners from an earlier partial run. the unprivileged container had no host Docker socket, a read-only root filesystem, and a writable temporary tool directory. |
+| Alpine container | the selected opengrep and uv binaries failed because they require glibc. setup then gained a check for musl-only Linux. an offline run confirmed the glibc error before downloads. |
+| `setup --check --with-zap --format json` | reported the existing pinned ZAP image ready without pulling it. |
 
-The setup and lookup unit tests cover check-only behavior, retries, preservation of existing tools, tool status, checksum mismatches, archive links, `PATH` precedence, cancellation, and ZAP pulls. These tests passed with:
+the setup and lookup unit tests cover check-only behavior, retries, preservation of existing tools, tool status, checksum mismatches, archive links, `PATH` precedence, cancellation, and ZAP pulls. these tests passed with:
 
 ```sh
 go test ./internal/setup ./internal/tools ./internal/cli
 ```
 
-No boat.dev VM was created. Automatic installation was not run on amd64 or Windows. The [VPS guide](vps.md) describes manual SSH steps.
+no boat.dev VM was created. automatic installation was not run on amd64 or Windows. the [VPS guide](vps.md) describes the manual SSH steps.
 
-## Rule pack verification
+## rule pack verification
 
-These runs on November 16, 2026 used the built `bin/pug`, OpenGrep 1.33.1, a fresh temporary `PUG_HOME`, and upstream Git repositories:
+these runs on November 16, 2026 used the built `bin/pug`, opengrep 1.33.1, a fresh temporary `PUG_HOME`, and upstream git repositories:
 
-| Check | Observed result |
+| check | observed result |
 | --- | --- |
-| `pug rules install amplify`, repeated, then `pug rules install amplify@e7643a008ec9027c96dfef7bdf5aedcac3847da8` | All succeeded at `e7643a008ec9`. The repeated install fetched the upstream default branch again. |
-| `pug rules install github.com/trailofbits/semgrep-rules` | Installed as `semgrep-rules` at `31390b3a99c0`. |
-| `pug rules list` | Listed both installed checkouts, their commits and profiles, and the built-in aliases with install state. |
-| Two `--rules amplify:security-audit` scans of the same fixture, then `pug diff` | Both completed with 224 rules and 79 findings. The comparison had 79 persistent findings, zero new, zero absent, and zero unverified. |
-| `--rules amplify,semgrep-rules`, then the same scan with the Trail of Bits directory path | Both completed with 1,148 rules and 155 findings, with the same composed rules hash. |
-| `--rules notinstalled` | Skipped `source` with `run: pug rules install notinstalled`; exit `3`. |
-| `--rules -x`, `rules install -- -x`, and `rules install amplify@-x` | Rejected as usage errors; exit `2`. |
+| `pug rules install amplify`, repeated, then `pug rules install amplify@e7643a008ec9027c96dfef7bdf5aedcac3847da8` | all succeeded at `e7643a008ec9`. the repeated install fetched the upstream default branch again. |
+| `pug rules install github.com/trailofbits/semgrep-rules` | installed as `semgrep-rules` at `31390b3a99c0`. |
+| `pug rules list` | listed both installed checkouts, their commits and profiles, and the built-in aliases with install state. |
+| two `--rules amplify:security-audit` scans of the same fixture, then `pug diff` | both completed with 224 rules and 79 findings. the comparison had 79 persistent findings, zero new, zero absent, and zero unverified. |
+| `--rules amplify,semgrep-rules`, then the same scan with the Trail of Bits directory path | both completed with 1,148 rules and 155 findings, with the same composed rules hash. |
+| `--rules notinstalled` | skipped `source` with `run: pug rules install notinstalled`. exit code `3`. |
+| `--rules -x`, `rules install -- -x`, and `rules install amplify@-x` | rejected as usage errors. exit code `2`. |
 
-The audit scans reported one partial-parse warning and one unresolved profile entry. The combined scans reported one partial-parse warning and 30 unresolved profile entries.
+the audit scans reported one partial-parse warning and one unresolved profile entry. the combined scans reported one partial-parse warning and 30 unresolved profile entries.
 
-Unit tests cover profile resolution, ID qualification, alias expansion, file limits, path escapes, symlink and fixture filtering, CLI errors, and rule changes in `pug diff`. The rule-pack integration test initializes and commits a repository in `t.TempDir`, clones it through a `file://` URL, and runs real OpenGrep. It verifies repeat installs, updates, commit pins, stable rescans, and missing findings becoming unverified after rules change. These checks passed:
+unit tests cover profile resolution, ID qualification, alias expansion, file limits, path escapes, symlink and fixture filtering, CLI errors, and rule changes in `pug diff`. the rule-pack integration test initializes and commits a repository in `t.TempDir`, clones it through a `file://` URL, and runs real opengrep. it verifies repeat installs, updates, commit pins, stable rescans, and missing findings becoming unverified after rules change. these checks passed:
 
 ```sh
 make check
 go test -tags=integration ./internal/scanner -run 'TestRealOpenGrepPartialParseCompletesWithoutStrict|TestRealRulePackScan' -count=1 -v
 ```
 
-## Untested capabilities
+## untested capabilities
 
-The runs did not cover a hosted deployment, billing, a live coding-agent workflow, a local model, or an autonomous pentesting agent. Pug does not supply those capabilities.
+the runs did not cover a hosted deployment, billing, a live coding-agent workflow, a local model, or an autonomous pentesting agent. pug does not supply those capabilities.

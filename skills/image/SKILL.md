@@ -5,6 +5,6 @@ disable-model-invocation: true
 argument-hint: "<image@sha256:digest>"
 ---
 
-Read `${CLAUDE_PLUGIN_ROOT}/skills/pug/SKILL.md` for the shared Pug workflow. Run only the `image` action. Ask for the image if omitted.
+read `${CLAUDE_PLUGIN_ROOT}/skills/pug/SKILL.md` for the shared pug workflow. run only the `image` action. ask for the image if it was omitted.
 
 Requested image: $ARGUMENTS

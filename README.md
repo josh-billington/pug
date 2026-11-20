@@ -23,25 +23,25 @@ install with `go install github.com/josh-billington/pug/cmd/pug@latest`. this in
 
 ## install and set up with your agent
 
-paste this prompt into claude code, codex, or cursor. it installs the CLI, installs the pug skill, and prepares the repository scanners. it does not start a scan.
+paste this prompt into claude code, codex, or cursor. the prompt installs pug, installs the skill, and prepares the repository scanners. it does not start a scan.
 
 ```text
-Install Pug and set up the scanners for a repository scan.
+install pug and set up the scanners for a repository scan.
 
-Confirm Go 1.25 or newer with `go version`. Install the CLI with `go install github.com/josh-billington/pug/cmd/pug@latest`. Confirm `pug --version`. If the shell cannot find `pug`, use `$(go env GOPATH)/bin/pug`, or `$(go env GOBIN)/pug` when GOBIN is set. Do not edit the shell profile.
+confirm go 1.25 or newer with `go version`. install pug with `go install github.com/josh-billington/pug/cmd/pug@latest`. confirm `pug --version`. if the shell cannot find `pug`, use `$(go env GOPATH)/bin/pug`. if GOBIN is set, use `$(go env GOBIN)/pug`. do not edit the shell profile.
 
-Install the Pug skill for this agent. If this session has the Pug checkout, copy only `skills/pug` into the user skills directory. For Claude Code, load this checkout with `claude --plugin-dir` set to the checkout path, so `/pug:doctor`, `/pug:scan`, `/pug:image`, and `/pug:diff` are available. For Codex and Cursor, the shared skill name is `pug`. Do not copy `skills/scan`, `skills/image`, `skills/diff`, or `skills/doctor`.
+install the pug skill for this agent. if this session has the pug checkout, copy only `skills/pug` into the user skills directory. for claude code, start claude with `--plugin-dir` set to the checkout path. that loads `/pug:doctor`, `/pug:scan`, `/pug:image`, and `/pug:diff`. for codex and cursor, the shared skill name is `pug`. do not copy `skills/scan`, `skills/image`, `skills/diff`, or `skills/doctor`.
 
-When `skills/pug` is on the default branch, this command installs the shared skill instead:
+when `skills/pug` is on the default branch, install the shared skill with:
 
 npx skills add josh-billington/pug --skill pug --agent claude-code codex cursor
 
-Run `pug setup --repo`. That checks Gitleaks, Actionlint, OpenGrep, and Trivy, and installs any that are missing. Do not use sudo.
+run `pug setup --repo`. that checks gitleaks, actionlint, opengrep, and trivy. it installs any that are missing. do not use sudo.
 
-Report whether setup printed "Selected scanners are ready." Do not start a scan.
+report whether setup printed `Selected scanners are ready.` do not start a scan.
 ```
 
-installing the skill does not install the `pug` binary or the scanners. the shared skill is [skills/pug/SKILL.md](skills/pug/SKILL.md). the other folders under `skills/` are claude code actions.
+the skill install does not install the `pug` binary or the scanners. the shared skill is [skills/pug/SKILL.md](skills/pug/SKILL.md). the other folders under `skills/` are claude code actions.
 
 after setup, ask the agent for one action:
 
@@ -52,7 +52,7 @@ after setup, ask the agent for one action:
 
 in claude code those actions are `/pug:doctor`, `/pug:scan`, `/pug:image`, and `/pug:diff`. in codex, select `pug` from `/skills` or enter `$pug` and the action. in cursor agent chat, enter `/pug` and the action. if cursor does not list the skill, copy `skills/pug` to `~/.cursor/skills/pug` and start a new chat.
 
-the skill does not launch active application or network scans. upstream OpenGrep rule packs stay opt-in: `pug rules install opengrep`, then `pug scan --rules opengrep`.
+the skill does not launch active application or network scans. upstream opengrep rule packs stay opt-in. install one with `pug rules install opengrep`, then scan with `pug scan --rules opengrep`.
 
 ## write your first report
 
@@ -71,7 +71,7 @@ the skill does not launch active application or network scans. upstream OpenGrep
 	./bin/pug setup --repo
 	```
 
-	setup checks Gitleaks, Actionlint, OpenGrep, and Trivy, and installs missing tools under `~/.local/share/pug`. when the selected scanners work, setup prints `Selected scanners are ready.` pug finds these tools without changes to your shell's `PATH`. `./bin/pug setup` also installs Nuclei and Schemathesis.
+	setup checks gitleaks, actionlint, opengrep, and trivy. it installs missing tools under `~/.local/share/pug`. when those scanners work, setup prints `Selected scanners are ready.` pug finds these tools without changes to your shell's `PATH`. `./bin/pug setup` also installs nuclei and schemathesis.
 
 	if setup reports a failure, follow [install scanners](docs/setup.md) before continuing.
 
