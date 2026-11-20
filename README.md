@@ -1,6 +1,6 @@
 # pug
 
-pug is a CLI tool for your agents, it makes 9 security scanning tools available to your agents and provides structured JSON output
+pug is a CLI tool for your agents, it makes 9 security scanning tools available to your agents and provides structured output as JSON
 
 pug wraps by default: 
 
@@ -17,7 +17,7 @@ and optionally:
 - trufflehog
 - naabu 
 
-you'll need go v1.25 or newer. automatic scanner installation supports macOS and Linux with glibc, on amd64 and arm64. native scanners run with your account's permissions.
+you'll need go v1.25 or newer. automatic scanner installation supports macOS and linux with glibc, on amd64 and arm64. native scanners run with your account's permissions.
 
 install with `go install github.com/josh-billington/pug/cmd/pug@latest`. this installs `pug` into `$(go env GOPATH)/bin`. to build from source instead, follow the steps below.
 
