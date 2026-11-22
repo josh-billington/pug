@@ -155,7 +155,7 @@ the live application tests in [`internal/scanner/scanner_integration_test.go`](.
 
 | flag | applies to | default | behavior |
 | --- | --- | --- | --- |
-| `--format`, `-f` | `scan`, `image`, `app`, `net` | `json` | accepts `json` or `text`. `scan` also accepts `sarif`, for [code scanning](scanning.md#upload-to-github-code-scanning). |
+| `--format`, `-f` | `scan`, `image`, `app`, `net` | `json` | accepts `json` or `text`. `scan` also accepts `sarif`, for [code scanning](guide.md#upload-to-github-code-scanning). |
 | `--output`, `-o` | `scan`, `image`, `app`, `net` | unset | also saves the report. the parent directory must exist. |
 | `--fail-on` | `scan`, `image`, `app`, `net` | `high`, or `medium` for `net` | minimum severity that produces exit code `1`. accepts `info`, `low`, `medium`, `high`, `critical`, or `none`. |
 | `--timeout` | `scan`, `image`, `app`, `net` | `5m` | sets a positive deadline for each scanner, including its version lookup. |
@@ -232,4 +232,4 @@ a finding fingerprint includes the check, tool, rule, location, line number, and
 | `absent` | the later completed check ran the same rules and did not report the finding. this does not prove a fix. |
 | `unverified` | the later report does not complete the check needed to evaluate the missing finding, or the check ran different rules. |
 
-pug compares rules by the `rules.sha256` of each check. a database change can affect a comparison. the [verification record](verification.md) lists tested scanner versions and results. [security boundaries](security.md) explains coverage and isolation limits.
+pug compares rules by the `rules.sha256` of each check. a database change can affect a comparison. [security boundaries](security.md) explains coverage and isolation limits.

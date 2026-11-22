@@ -1,8 +1,82 @@
-# run scans and compare reports
+# use pug
 
-use these procedures to produce a pug report for a repository, a container image, or a running application. the commands assume `pug` is on `PATH`. from this checkout, use `./bin/pug`.
+the commands assume `pug` is on `PATH`. from a checkout, use `./bin/pug`. native scanners run with your account's permissions, so scan trusted checkouts. see [security boundaries](security.md) before you handle hostile code. [the command reference](commands.md) lists every flag, report field, and exit code.
 
-install the required scanners with [install scanners](setup.md). native scanners inherit your account's permissions, so scan trusted checkouts. see [security boundaries](security.md) before you handle hostile code.
+## install scanners
+
+automatic installation requires macOS or Linux with glibc, on amd64 or arm64. on Windows, install the scanners on `PATH`, then use the check-only command below.
+
+### install missing scanners
+
+1. run setup as the account that runs scans.
+
+	```sh
+	pug setup
+	```
+
+	setup checks gitleaks, actionlint, opengrep, trivy, nuclei, and schemathesis. it installs missing tools under `~/.local/share/pug` and reuses working installations. pug finds its own tools without shell profile changes.
+
+	for only the default repository scanners, run `pug setup --repo`. that selects gitleaks, actionlint, opengrep, and trivy. do not combine `--repo` with `--tools`.
+
+	trufflehog backs only the opt-in `secrets-history` check, so it installs only with `pug setup --tools trufflehog`. naabu, used by `pug net`, installs only with `pug setup --tools naabu`.
+
+2. confirm that setup prints `Selected scanners are ready.`
+
+	if setup reports a failure, use [retry a failed installation](#retry-a-failed-installation). setup exits with code `3` when a selected tool is missing or fails.
+
+3. run the scan command printed after `Next:`.
+
+if you need a different installation directory, set `PUG_HOME` to an absolute path before setup. use the same value for later pug commands. see [tool paths and versions](commands.md#tool-paths-and-versions).
+
+### check tools without installing
+
+to check installed tools without downloading or installing anything, run:
+
+```sh
+pug setup --check
+```
+
+setup runs version commands and checks whether the Docker daemon responds. it exits with code `3` if a selected scanner is missing or fails. missing Docker or git does not block native scanner setup.
+
+to select fewer scanners, pass their names with `--tools`:
+
+```sh
+pug setup --tools gitleaks,actionlint
+```
+
+for scripts, use JSON output:
+
+```sh
+pug setup --check --format json
+```
+
+check `ready` and the statuses in `tools`. progress goes to stderr. see [setup results](commands.md#setup-results) for the fields and status values.
+
+### prepare ZAP
+
+1. install Docker through your operating system.
+2. start the Docker daemon.
+3. pull pug's pinned ZAP image if it is missing.
+
+	```sh
+	pug setup --with-zap
+	```
+
+	setup reports `ZAP: ready` when the image is available. this checks image availability, not a live ZAP scan. setup also checks the selected native scanners.
+
+if you choose another image, pass its full digest reference with `--zap-image` to both `pug setup` and `pug app`. see [run ZAP](#run-zap) for the scan procedure.
+
+### retry a failed installation
+
+if a download fails, check your network and proxy settings, then rerun setup. setup reuses tools that already work.
+
+if a checksum does not match, check the pinned release asset before retrying. pug stops before it runs the downloaded binary.
+
+if an installed tool's version command fails, repair or remove that installation. then rerun setup. tools on `PATH` take precedence over pug's installations.
+
+if setup is interrupted, rerun it. uv can leave an unfinished Python environment or cache that a later run must complete.
+
+if trivy fails during a scan, check its database access separately. setup checks that trivy runs. it does not check the vulnerability database. see [tool installation](security.md#tool-installation) for download verification and dependency limits.
 
 ## scan a repository
 
@@ -147,7 +221,7 @@ each open port outside `--expect` is a finding, and the command exits with code 
 
 ZAP crawls the target and sends active test requests. use a disposable environment. the ZAP container needs an address that it can reach.
 
-1. prepare the image with [prepare ZAP](setup.md#prepare-zap).
+1. prepare the image with [prepare ZAP](#prepare-zap).
 2. start the target application.
 3. run ZAP against the target address.
 
@@ -162,3 +236,55 @@ ZAP crawls the target and sends active test requests. use a disposable environme
 on a Linux VPS, replace the URL with an address the ZAP container can reach. inside that container, `127.0.0.1` refers to the container itself. pug does not configure Docker networking.
 
 if setup used a custom image, pass the same `--zap-image` reference to the scan. ZAP uses `--pull=never`, so the image must already be installed.
+
+## run an offline command in the sandbox
+
+use the sandbox to run a command against a copy of a clean git checkout. you can start an application beside the command in the same container.
+
+you need git, a running Docker daemon, and a locally installed image pinned by SHA-256 digest. the image must contain `/bin/sh`, `mkdir`, `cp`, and the command's runtime and dependencies.
+
+the container has no external network access. a hosted model API is unreachable. if you use an agent, the image must contain the offline agent and any local model it needs. pug supplies no agent, model, or credentials.
+
+### run the command
+
+1. set `SANDBOX_IMAGE` to your installed image's full `NAME@sha256:DIGEST` reference.
+2. prepare a clean checkout with a commit.
+
+	use the git checkout root for `--repo`. commit or stash changes to tracked files before the run. pug excludes untracked files and rejects tracked symlinks and submodules.
+
+3. run your command after `--`.
+
+	this example assumes the image contains Python and `/opt/offline-agent`, and the checkout contains `app.py`:
+
+	```sh
+	pug sandbox \
+		--repo /path/to/clean-checkout \
+		--image "$SANDBOX_IMAGE" \
+		--app-command '["python3","app.py"]' \
+		-o pug-report-sandbox.json \
+		-- /opt/offline-agent test http://127.0.0.1:8000
+	```
+
+	replace the checkout path and the example commands with your values. omit `--app-command` if no application is needed.
+
+the application and the command share container loopback. the command must wait until the application accepts requests.
+
+### read the result
+
+inspect `pug-report-sandbox.json`. a completed check means the command exited successfully and cleanup succeeded. pug records an output hash. it does not treat command output as security findings.
+
+the command works in `/scratch/work`. pug leaves the host checkout unchanged and does not copy files back. see [sandbox flags](commands.md#sandbox-flags) for options and [disposable sandbox](security.md#disposable-sandbox) for isolation limits.
+
+## run pug on a VPS
+
+the VM must run Linux with glibc on amd64 or arm64, with network access for scanner downloads and git to clone the target. native scanners run with the account's permissions, so use a separate VM for code you do not trust. replace `user@vm` with your SSH login, and use `GOARCH=arm64` for an arm64 VM.
+
+```sh
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o bin/pug-linux ./cmd/pug
+scp bin/pug-linux user@vm:/tmp/pug
+ssh user@vm 'mkdir -p ~/.local/bin && install -m 755 /tmp/pug ~/.local/bin/pug && ~/.local/bin/pug setup'
+ssh user@vm 'cd /path/to/trusted-checkout && ~/.local/bin/pug scan -o ~/pug-report.json > /dev/null'
+scp user@vm:pug-report.json ./pug-report.json
+```
+
+a nonzero scan exit can mean findings or incomplete coverage. see [exit codes](commands.md#exit-codes). for ZAP or the sandbox, install Docker on the VM first.

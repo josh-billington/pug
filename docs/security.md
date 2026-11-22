@@ -68,10 +68,10 @@ the snapshot and container limits come from [`internal/sandbox/sandbox.go`](../i
 rg -n -- 'count >|total >|--(cpus|memory|memory-swap|pids-limit|tmpfs)' internal/sandbox/sandbox.go
 ```
 
-the [verification record](verification.md#live-docker-verification) lists completed isolation tests.
+`make integration` runs the isolation tests when `PUG_TEST_SANDBOX_IMAGE` is set.
 
 ## ZAP container
 
 ZAP uses a separate container configuration because it needs network access to reach the target. pug mounts a temporary report directory, drops capabilities, and limits CPU, memory, processes, and runtime. ZAP does not receive a source checkout.
 
-pug converts the ZAP JSON report into its report format, then deletes the original. target URL validation does not restrict the container's outbound requests. the [ZAP scan procedure](scanning.md#run-zap) describes target addressing.
+pug converts the ZAP JSON report into its report format, then deletes the original. target URL validation does not restrict the container's outbound requests. the [ZAP scan procedure](guide.md#run-zap) describes target addressing.
