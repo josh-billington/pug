@@ -472,6 +472,108 @@ func TestComposeSkipsNonMappingYAMLInPacks(t *testing.T) {
 	}
 }
 
+func TestResolveNamesFoldersInsideAnInstalledPackByPath(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("PUG_HOME", home)
+	body := string(ruleFile("hardcoded-jwt-secret").Data)
+	for _, folder := range []string{"javascript/jose/security", "javascript/jsonwebtoken/security"} {
+		dir := filepath.Join(home, "rules", "opengrep", filepath.FromSlash(folder))
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "jwt-hardcode.yaml"), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	root := filepath.Join(home, "rules", "opengrep")
+	if err := os.WriteFile(filepath.Join(root, "eval.yaml"), ruleFile("eval").Data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	jose := filepath.Join(root, "javascript", "jose", "security")
+	token := filepath.Join(root, "javascript", "jsonwebtoken", "security")
+	specs, err := ParseSpecs([]string{jose, token})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sources, missing, err := Resolve(specs)
+	if err != nil || len(missing) != 0 {
+		t.Fatalf("resolve: missing=%v err=%v", missing, err)
+	}
+	r, err := Compose(sources)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		"opengrep.javascript.jose.security.jwt-hardcode.hardcoded-jwt-secret",
+		"opengrep.javascript.jsonwebtoken.security.jwt-hardcode.hardcoded-jwt-secret",
+	}
+	if got := ids(t, r); !slices.Equal(got, want) {
+		t.Fatalf("ids = %v, want %v", got, want)
+	}
+	rootSpecs, err := ParseSpecs([]string{root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rootSources, _, err := Resolve(rootSpecs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rootRules, err := Compose(rootSources)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(ids(t, rootRules), "opengrep.eval") {
+		t.Fatalf("pack root ids = %v", ids(t, rootRules))
+	}
+}
+
+func TestComposeSelectsALocalProfileFile(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("PUG_HOME", home)
+	pack := filepath.Join(home, "rules", "opengrep")
+	if err := os.MkdirAll(filepath.Join(pack, "configs"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pack, "eval.yaml"), ruleFile("eval").Data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pack, "exec.yaml"), ruleFile("exec").Data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// A pack default would select exec. The local file must win.
+	if err := os.WriteFile(filepath.Join(pack, "configs", "default.list"), []byte("exec.yaml:exec\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	list := filepath.Join(t.TempDir(), "security.list")
+	if err := os.WriteFile(list, []byte("# security\neval.yaml:eval\nexec.yaml:missing\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	specs, err := ParseSpecs([]string{"opengrep:" + list})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if specs[0].Kind != PackSpec || specs[0].Name != "opengrep" || specs[0].Profile != "" || specs[0].ProfileFile != list {
+		t.Fatalf("spec = %+v", specs[0])
+	}
+	sources, missing, err := Resolve(specs)
+	if err != nil || len(missing) != 0 || len(sources) != 1 {
+		t.Fatalf("resolve: missing=%v sources=%d err=%v", missing, len(sources), err)
+	}
+	r, err := Compose(sources)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := ids(t, r); !slices.Equal(got, []string{"opengrep.eval"}) {
+		t.Fatalf("ids = %v", got)
+	}
+	if len(r.Provenance.Unresolved) != 1 || !strings.Contains(r.Provenance.Unresolved[0], "exec.yaml:missing") {
+		t.Fatalf("unresolved = %v", r.Provenance.Unresolved)
+	}
+	if !slices.Equal(r.Provenance.Specs, []string{"opengrep:" + list}) {
+		t.Fatalf("specs = %v", r.Provenance.Specs)
+	}
+}
+
 func TestComposeRejectsDuplicateRuleIDsInAFile(t *testing.T) {
 	t.Parallel()
 	pack := fstest.MapFS{

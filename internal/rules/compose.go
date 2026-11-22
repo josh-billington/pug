@@ -33,7 +33,10 @@ type Source struct {
 	File      string
 	Name      string
 	Directory string
-	Commit    string
+	// Prefix is this folder's path inside an installed pack, with slashes.
+	// Rule ids use it so two folders with the same base name do not collide.
+	Prefix string
+	Commit string
 }
 
 type Ruleset struct {
@@ -65,10 +68,12 @@ func Resolve(specs []Spec) ([]Source, []string, error) {
 				sources = append(sources, Source{Spec: spec, Files: os.DirFS(filepath.Dir(absolute)), File: filepath.Base(absolute)})
 				continue
 			}
-			source, err := directorySource(spec, filepath.Base(absolute), absolute)
+			name, prefix := directoryIdentity(absolute)
+			source, err := directorySource(spec, name, absolute)
 			if err != nil {
 				return nil, nil, err
 			}
+			source.Prefix = prefix
 			sources = append(sources, source)
 		case PackSpec:
 			if home == "" {
@@ -100,6 +105,41 @@ func Resolve(specs []Spec) ([]Source, []string, error) {
 		}
 	}
 	return sources, missing, nil
+}
+
+// directoryIdentity names a local folder. A folder inside an installed pack
+// keeps the pack name and the path under that pack. Any other folder keeps
+// its base name, which is how a local pack is already named.
+func directoryIdentity(dir string) (name, prefix string) {
+	if pack, rest, ok := installedPackFolder(dir); ok {
+		return pack, rest
+	}
+	return filepath.Base(dir), ""
+}
+
+func installedPackFolder(dir string) (pack, rest string, ok bool) {
+	home, err := tools.Home()
+	if err != nil {
+		return "", "", false
+	}
+	root := filepath.Join(home, "rules")
+	dir, root = unwrapPath(dir), unwrapPath(root)
+	rel, err := filepath.Rel(root, dir)
+	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", "", false
+	}
+	pack, rest, _ = strings.Cut(filepath.ToSlash(rel), "/")
+	if !packName.MatchString(pack) {
+		return "", "", false
+	}
+	return pack, rest, true
+}
+
+func unwrapPath(path string) string {
+	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		return resolved
+	}
+	return path
 }
 
 func directorySource(spec Spec, name, dir string) (Source, error) {
@@ -225,6 +265,12 @@ func (c *composer) addPack(source Source, spec string) error {
 		return fmt.Errorf("rules %s: %w", spec, err)
 	}
 	files := map[string][]rule{}
+	qualifyPath := func(name, id string) string {
+		if source.Prefix != "" {
+			name = path.Join(source.Prefix, name)
+		}
+		return qualify(source.Name, name, id)
+	}
 	addFile := func(name string, keep func(string) bool) (bool, error) {
 		if !allowed[name] {
 			return false, fs.ErrNotExist
@@ -240,7 +286,7 @@ func (c *composer) addPack(source Source, spec string) error {
 				return false, err
 			}
 			for _, r := range rules {
-				mappingValue(r.node, "id").Value = qualify(source.Name, name, r.id)
+				mappingValue(r.node, "id").Value = qualifyPath(name, r.id)
 			}
 			files[name] = rules
 		}
@@ -250,11 +296,18 @@ func (c *composer) addPack(source Source, spec string) error {
 				continue
 			}
 			found = true
-			if err := c.add(qualify(source.Name, name, r.id), r.node, spec); err != nil {
+			if err := c.add(qualifyPath(name, r.id), r.node, spec); err != nil {
 				return false, err
 			}
 		}
 		return found, nil
+	}
+	if source.Spec.ProfileFile != "" {
+		list, err := readFile(os.DirFS(filepath.Dir(source.Spec.ProfileFile)), filepath.Base(source.Spec.ProfileFile))
+		if err != nil {
+			return fmt.Errorf("rules %s: %w", spec, err)
+		}
+		return c.addListed(list, spec, addFile)
 	}
 	profiles, err := profileNames(source.Files)
 	if err != nil {
@@ -284,6 +337,10 @@ func (c *composer) addPack(source Source, spec string) error {
 	if err != nil {
 		return fmt.Errorf("rules %s: %w", spec, err)
 	}
+	return c.addListed(list, spec, addFile)
+}
+
+func (c *composer) addListed(list []byte, spec string, addFile func(string, func(string) bool) (bool, error)) error {
 	lines := bufio.NewScanner(bytes.NewReader(list))
 	for lines.Scan() {
 		entry := strings.TrimSpace(lines.Text())

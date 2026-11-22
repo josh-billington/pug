@@ -18,10 +18,11 @@ const (
 )
 
 type Spec struct {
-	Kind    SpecKind
-	Name    string
-	Profile string
-	Path    string
+	Kind        SpecKind
+	Name        string
+	Profile     string
+	ProfileFile string
+	Path        string
 }
 
 var profileName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
@@ -54,6 +55,12 @@ func ParseSpec(value string) (Spec, error) {
 	if hasProfile {
 		name, profile = value[:profileAt], value[profileAt+1:]
 	}
+	if hasProfile && profileFile(profile) {
+		if !packName.MatchString(name) || name == starterName {
+			return Spec{}, fmt.Errorf("invalid rule pack name %q", name)
+		}
+		return Spec{Kind: PackSpec, Name: name, ProfileFile: profile}, nil
+	}
 	if hasProfile && !profileName.MatchString(profile) {
 		return Spec{}, fmt.Errorf("invalid profile name %q", profile)
 	}
@@ -76,8 +83,16 @@ func (s Spec) String() string {
 	case PathSpec:
 		name = s.Path
 	}
-	if s.Profile != "" {
+	switch {
+	case s.ProfileFile != "":
+		name += ":" + s.ProfileFile
+	case s.Profile != "":
 		name += ":" + s.Profile
 	}
 	return name
+}
+
+// profileFile reports a local list path, such as ./security.list, rather than a pack profile name.
+func profileFile(value string) bool {
+	return strings.ContainsAny(value, `/\`) || strings.HasPrefix(value, "./") || strings.HasPrefix(value, "../")
 }
