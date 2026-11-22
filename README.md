@@ -1,6 +1,6 @@
 # pug
 
-pug is a CLI tool for your agents, it makes 9 security scanning tools available to your agents and provides structured output as JSON
+pug is a CLI tool for your agents. it gives them 9 security scanners and reports what they find as JSON.
 
 pug wraps by default: 
 
@@ -19,7 +19,7 @@ and optionally:
 
 ## install and set up with your agent
 
-paste this prompt into claude code, codex, or cursor. the prompt installs pug, installs the skill, and installs the tools that pug wraps be default
+paste this prompt into claude code, codex, or cursor. the prompt installs pug, installs the skill, and installs the tools that pug wraps by default.
 
 ```text
 install pug and set up the scanners for a repository scan.
@@ -66,7 +66,7 @@ every flag, report field, and exit code is in the [command reference](docs/comma
 you need go 1.25 or newer and `make`.
 
 - `make check` runs gofmt, vet, and the race tests. `make build` writes `bin/pug`.
-- `make integration` runs the installed scanners against vulnerable fixtures. a scanner that is not installed is skipped, so a pass with skips does not verify it. `TRIVY_SKIP_DB_UPDATE=true TRIVY_SKIP_CHECK_UPDATE=true` skips trivy's downloads when its caches are current.
+- `make integration` runs the installed scanners against vulnerable fixtures. the tests skip a scanner that is not installed, so a pass with skips does not verify it. `TRIVY_SKIP_DB_UPDATE=true TRIVY_SKIP_CHECK_UPDATE=true` skips trivy's downloads when its caches are current.
 - the Docker tests run only when `PUG_TEST_SANDBOX_IMAGE` or `PUG_TEST_ZAP_IMAGE` names a locally installed, digest-pinned image.
 
 ## license
