@@ -2,15 +2,7 @@
 
 pug writes scan reports to stdout and diagnostics to stderr. scan reports use JSON by default. setup uses text by default and sends progress to stderr.
 
-the command definitions are in [`internal/cli/cli.go`](../internal/cli/cli.go) and [`internal/cli/setup.go`](../internal/cli/setup.go). the built binary exposes the current commands and flags:
-
-```sh
-pug --help
-pug setup --help
-pug scan --help
-pug app --help
-pug sandbox --help
-```
+`pug COMMAND --help` prints the current flags. [`internal/cli/cli.go`](../internal/cli/cli.go) and [`internal/cli/setup.go`](../internal/cli/setup.go) define the commands.
 
 ## commands
 
@@ -42,7 +34,7 @@ pug sandbox --help
 | `--timeout` | `10m` | sets the deadline for each selected tool installation. valid values are greater than zero and at most `1h`. |
 | `--format` | `text` | accepts `text` or `json`. progress goes to stderr in both formats. |
 
-setup reuses working tools on `PATH` before it checks pug's tool directory. existing tools are not upgraded, and they do not have to match the pinned versions. a failed version command marks the tool as failed. setup continues with the remaining tools.
+setup reuses working tools on `PATH` before it checks pug's tool directory. it does not upgrade them, and they do not have to match the pinned versions. when a tool's version command fails, setup marks it failed and moves on to the rest.
 
 Docker and git are optional for native scanner setup. with `--with-zap`, Docker and the image become required. setup does not install Docker or git, start daemons, or change group membership. a ZAP image marked ready has passed an image availability check, not a live scan.
 
@@ -88,26 +80,19 @@ the release URLs and the schemathesis pin are visible with:
 rg -n '"url"|schemathesis==' internal/setup/releases.json internal/setup/setup.go
 ```
 
-these commands show the selected defaults and the tools available on the current machine:
-
-```sh
-pug setup --help
-pug setup --check --format json
-```
-
 ## checks
 
 | check | tool | scope |
 | --- | --- | --- |
 | `source` | opengrep | the rules selected with `--rules`. the default starter rules cover JavaScript `eval`, Python shell and pickle calls, and go shell calls. |
 | `secrets` | gitleaks | current directory contents. pug excludes git history, secret values, and source snippets from the report. |
-| `secrets-history` | trufflehog | committed git history on every ref, not uncommitted changes. the target must be the repository root. trufflehog runs with `--no-verification` and `--no-update`, so it sends no candidate secrets to providers. the `URI` detector is excluded because it flags every URL with embedded credentials, including test fixtures. pug keeps the detector, file, line, and commit, and drops secret values and committer details. opt-in only. |
+| `secrets-history` | trufflehog | committed git history on every ref, not uncommitted changes. the target must be the repository root. trufflehog runs with `--no-verification` and `--no-update`, so it sends no candidate secrets to providers. pug excludes the `URI` detector because it flags every URL with embedded credentials, including test fixtures. pug keeps the detector, file, line, and commit, and drops secret values and committer details. opt-in only. |
 | `dependencies` | trivy | vulnerabilities in supported dependency manifests and lockfiles. |
-| `actions` | actionlint | GitHub Actions syntax, expressions, and action metadata. shellcheck and pyflakes subprocesses are disabled. |
+| `actions` | actionlint | GitHub Actions syntax, expressions, and action metadata. pug turns off the shellcheck and pyflakes subprocesses. |
 | `infra` | trivy | supported infrastructure and container configuration checks. |
 | `image` | trivy | container image vulnerabilities and misconfigurations. |
 | `api` | schemathesis | API contract checks and input fuzzing from the supplied local schema. |
-| `exposure` | nuclei | supplied local HTTP templates. redirects and Interactsh callbacks are disabled. |
+| `exposure` | nuclei | supplied local HTTP templates. pug turns off redirects and Interactsh callbacks. |
 | `zap` | Docker and ZAP | full scan using a preinstalled digest-pinned ZAP image. |
 | `ports` | naabu | TCP connect scan of `--ports` and `--expect` on one IP address. open ports outside `--expect` are medium findings. if no expected port answers, the check fails, because a down or filtered host looks the same as a closed one. |
 
@@ -149,13 +134,11 @@ these values come from [`internal/scanner/scanner.go`](../internal/scanner/scann
 rg -n -- '--?(max-redirects|workers|max-examples|rate-limit|concurrency)|"-m", "1"' internal/scanner/scanner.go
 ```
 
-the live application tests in [`internal/scanner/scanner_integration_test.go`](../internal/scanner/scanner_integration_test.go) cover local fixtures.
-
 ## scan flags
 
 | flag | applies to | default | behavior |
 | --- | --- | --- | --- |
-| `--format`, `-f` | `scan`, `image`, `app`, `net` | `json` | accepts `json` or `text`. `scan` also accepts `sarif`, for [code scanning](scanning.md#upload-to-github-code-scanning). |
+| `--format`, `-f` | `scan`, `image`, `app`, `net` | `json` | accepts `json` or `text`. `scan` also accepts `sarif`, for [code scanning](guide.md#upload-to-github-code-scanning). |
 | `--output`, `-o` | `scan`, `image`, `app`, `net` | unset | also saves the report. the parent directory must exist. |
 | `--fail-on` | `scan`, `image`, `app`, `net` | `high`, or `medium` for `net` | minimum severity that produces exit code `1`. accepts `info`, `low`, `medium`, `high`, `critical`, or `none`. |
 | `--timeout` | `scan`, `image`, `app`, `net` | `5m` | sets a positive deadline for each scanner, including its version lookup. |
@@ -223,7 +206,7 @@ a finding fingerprint includes the check, tool, rule, location, line number, and
 
 ### report comparison
 
-`diff` requires the same target in both reports. it classifies findings as follows:
+`diff` requires the same target in both reports. it sorts findings into four categories:
 
 | category | meaning |
 | --- | --- |
@@ -232,4 +215,4 @@ a finding fingerprint includes the check, tool, rule, location, line number, and
 | `absent` | the later completed check ran the same rules and did not report the finding. this does not prove a fix. |
 | `unverified` | the later report does not complete the check needed to evaluate the missing finding, or the check ran different rules. |
 
-pug compares rules by the `rules.sha256` of each check. a database change can affect a comparison. the [verification record](verification.md) lists tested scanner versions and results. [security boundaries](security.md) explains coverage and isolation limits.
+pug compares rules by the `rules.sha256` of each check. a database change can affect a comparison. [security boundaries](security.md) explains coverage and isolation limits.

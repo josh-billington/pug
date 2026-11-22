@@ -1,6 +1,6 @@
 # pug
 
-pug is a CLI tool for your agents, it makes 9 security scanning tools available to your agents and provides structured output as JSON
+pug is a CLI tool for your agents. it gives them 9 security scanners and reports what they find as JSON.
 
 pug wraps by default: 
 
@@ -19,7 +19,7 @@ and optionally:
 
 ## install and set up with your agent
 
-paste this prompt into claude code, codex, or cursor. the prompt installs pug, installs the skill, and installs the tools that pug wraps be default
+paste this prompt into claude code, codex, or cursor. the prompt installs pug, installs the skill, and installs the tools that pug wraps by default.
 
 ```text
 install pug and set up the scanners for a repository scan.
@@ -52,11 +52,22 @@ the skill does not launch active application or network scans (wip)
 
 ## other stuff your agents can do with pug
 
-- [install scanners](docs/setup.md), including check-only setup and ZAP
-- [run scans and compare reports](docs/scanning.md) for repositories, images, and applications, including upstream rule packs
-- [run an offline command in the sandbox](docs/sandbox.md)
-- [run pug on a VPS](docs/vps.md) through SSH
-- [build and test pug](docs/testing.md) before changing the code
+[docs/guide.md](docs/guide.md) covers each of these:
+
+- [install scanners](docs/guide.md#install-scanners), including check-only setup and ZAP
+- [scan](docs/guide.md#scan-a-repository) repositories, images, and applications, with upstream rule packs
+- [compare reports](docs/guide.md#compare-reports-after-a-fix) and [upload to GitHub code scanning](docs/guide.md#upload-to-github-code-scanning)
+- [run an offline command in the sandbox](docs/guide.md#run-an-offline-command-in-the-sandbox) or [on a VPS](docs/guide.md#run-pug-on-a-vps)
+
+every flag, report field, and exit code is in the [command reference](docs/commands.md). what scans can read and change is in [security boundaries](docs/security.md).
+
+## develop
+
+you need go 1.25 or newer and `make`.
+
+- `make check` runs gofmt, vet, and the race tests. `make build` writes `bin/pug`.
+- `make integration` runs the installed scanners against vulnerable fixtures. the tests skip a scanner that is not installed, so a pass with skips does not verify it. `TRIVY_SKIP_DB_UPDATE=true TRIVY_SKIP_CHECK_UPDATE=true` skips trivy's downloads when its caches are current.
+- the Docker tests run only when `PUG_TEST_SANDBOX_IMAGE` or `PUG_TEST_ZAP_IMAGE` names a locally installed, digest-pinned image.
 
 ## license
 
