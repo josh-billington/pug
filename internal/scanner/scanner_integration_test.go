@@ -78,6 +78,11 @@ func TestRealRepositoryScanners(t *testing.T) {
 				t.Fatal("report exposed the fake token")
 			}
 			t.Logf("%s: %d findings, tool %s", tt.name, len(r.Findings()), r.Checks[0].Version)
+			for _, finding := range r.Findings() {
+				if filepath.IsAbs(finding.Location) || strings.Contains(finding.Location, "://") {
+					t.Errorf("%s reported a non-relative location %q", tt.tool, finding.Location)
+				}
+			}
 			if tt.name == "secrets" {
 				if err := os.Remove(filepath.Join(repo, "credentials.py")); err != nil {
 					t.Fatal(err)
