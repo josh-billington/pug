@@ -164,6 +164,18 @@ func Validate(options *Options) error {
 		seen[check] = true
 	}
 	for i, spec := range options.Rules {
+		if spec.ProfileFile != "" {
+			info, err := os.Stat(spec.ProfileFile)
+			if err != nil {
+				return fmt.Errorf("rules profile must reference an existing file: %w", err)
+			}
+			if !info.Mode().IsRegular() {
+				return fmt.Errorf("rules profile must reference a regular file")
+			}
+			if options.Rules[i].ProfileFile, err = filepath.Abs(spec.ProfileFile); err != nil {
+				return fmt.Errorf("resolve rules profile: %w", err)
+			}
+		}
 		if spec.Kind != rules.PathSpec {
 			continue
 		}

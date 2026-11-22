@@ -25,6 +25,8 @@ func TestParseSpecs(t *testing.T) {
 		{name: "several", values: []string{"starter", " amplify:secrets", "my.yml"}, want: []Spec{
 			{Kind: StarterSpec}, {Kind: PackSpec, Name: "amplify", Profile: "secrets"}, {Kind: PathSpec, Path: "my.yml"},
 		}},
+		{name: "local profile file", values: []string{"opengrep:./security.list"}, want: []Spec{{Kind: PackSpec, Name: "opengrep", ProfileFile: "./security.list"}}},
+		{name: "absolute profile file", values: []string{"opengrep:/tmp/security.list"}, want: []Spec{{Kind: PackSpec, Name: "opengrep", ProfileFile: "/tmp/security.list"}}},
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
