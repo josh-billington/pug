@@ -23,15 +23,15 @@ import (
 	"github.com/josh-billington/pug/internal/tools"
 )
 
-var AllChecks = []string{"source", "secrets", "secrets-history", "dependencies", "actions", "infra", "image", "api", "exposure", "zap", "ports", "pentest"}
-var RepositoryChecks = []string{"source", "secrets", "dependencies", "actions", "infra"}
+var AllChecks = []string{"source", "secrets", "secrets-history", "dependencies", "actions", "workflows", "infra", "image", "api", "exposure", "zap", "ports", "pentest"}
+var RepositoryChecks = []string{"source", "secrets", "dependencies", "actions", "workflows", "infra"}
 
 // OptionalRepositoryChecks run only when named with --checks.
 var OptionalRepositoryChecks = []string{"secrets-history"}
 
 var Tools = map[string]string{
 	"source": "opengrep", "secrets": "gitleaks", "secrets-history": "trufflehog", "dependencies": "trivy",
-	"actions": "actionlint", "infra": "trivy", "image": "trivy",
+	"actions": "actionlint", "workflows": "zizmor", "infra": "trivy", "image": "trivy",
 	"api": "schemathesis", "exposure": "nuclei", "zap": "docker", "ports": "naabu",
 }
 
@@ -244,7 +244,8 @@ func Scan(ctx context.Context, options Options, executor runner.Executor) report
 		r.Limitations = append(r.Limitations,
 			"Scans inspect the working tree, not only the PR diff; files may change during a scan.",
 			"Only the opt-in secrets-history check reads Git history, and it covers commits, not uncommitted changes.",
-			"Source checks run only the selected rules, by default a small starter pack; Actions linting is not a complete workflow security audit.")
+			"Source checks run only the selected rules, by default a small starter pack.",
+			"The workflows check reads local GitHub Actions files offline and does not fetch action definitions or use a GitHub token.")
 	}
 	if options.Kind == "app" {
 		r.Limitations = append(r.Limitations,
@@ -278,6 +279,8 @@ type plan struct {
 	mount string
 	image string
 	rules *report.RuleProvenance
+	// nothing is an exit code that means the tool found nothing to audit.
+	nothing map[int]string
 }
 
 func buildPlan(options Options, name, temp string) (plan, error) {
@@ -347,6 +350,13 @@ func buildPlan(options Options, name, temp string) (plan, error) {
 		p.artifact = ""
 		p.parser = parseActionlint
 		p.accepted[1] = true
+	case "workflows":
+		// SARIF goes to stdout. Exit 3 means zizmor collected no workflow or action files.
+		// --offline and a token-free environment keep the audit from calling GitHub.
+		p.invocation.Args = []string{"--offline", "--format=sarif", options.Target}
+		p.invocation.Env = tools.IsolatedEnv("zizmor", temp)
+		p.artifact = ""
+		p.nothing = map[int]string{3: "no GitHub Actions workflow or action files found; nothing to audit"}
 	case "api":
 		if options.Schema == "" {
 			return p, fmt.Errorf("no local OpenAPI schema supplied; use --schema")
@@ -466,6 +476,10 @@ func runCheck(ctx context.Context, options Options, name string, executor runner
 	check.ExitCode = result.ExitCode
 	if scanCtx.Err() != nil {
 		check.Reason = "scanner cancelled or timed out; coverage is incomplete"
+		return check
+	}
+	if reason, ok := p.nothing[result.ExitCode]; ok && !result.Truncated {
+		check.Status, check.ExitCode, check.Reason = "completed", 0, reason
 		return check
 	}
 	if !p.accepted[result.ExitCode] || result.Truncated || (result.Err != nil && result.ExitCode == 0) {

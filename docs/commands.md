@@ -35,8 +35,8 @@ pug sandbox --help
 | flag | default | behavior |
 | --- | --- | --- |
 | `--check` | `false` | checks tools without downloads or installations. |
-| `--repo` | `false` | selects gitleaks, actionlint, opengrep, and trivy. those are the tools for the default repository checks. do not combine `--repo` with `--tools`. |
-| `--tools` | `gitleaks,actionlint,opengrep,trivy,nuclei,schemathesis` | selects at least one native scanner. `trufflehog` and `naabu` install only when named. unknown or repeated names are invalid. |
+| `--repo` | `false` | selects gitleaks, actionlint, zizmor, opengrep, and trivy. those are the tools for the default repository checks. do not combine `--repo` with `--tools`. |
+| `--tools` | `gitleaks,actionlint,zizmor,opengrep,trivy,nuclei,schemathesis` | selects at least one native scanner. `trufflehog` and `naabu` install only when named. unknown or repeated names are invalid. |
 | `--with-zap` | `false` | also checks the ZAP image and pulls it if missing. requires a running Docker daemon. |
 | `--zap-image` | the tested image in [`internal/tools/tools.go`](../internal/tools/tools.go) | selects the digest-pinned image for `--with-zap`. a custom image also needs `--zap-image` on `pug app`. |
 | `--timeout` | `10m` | sets the deadline for each selected tool installation. valid values are greater than zero and at most `1h`. |
@@ -73,6 +73,7 @@ automatic installation supports macOS and Linux with glibc, on amd64 and arm64. 
 | gitleaks | 8.30.1 | upstream release binary |
 | trufflehog | 3.99.7 | upstream release binary |
 | actionlint | 1.7.12 | upstream release binary |
+| zizmor | 1.32.0 | upstream release binary |
 | opengrep | 1.33.1 | upstream release binary |
 | trivy | 0.76.2 | upstream release binary |
 | naabu | 2.7.0 | upstream release binary, only with `--tools naabu` |
@@ -104,6 +105,7 @@ pug setup --check --format json
 | `secrets-history` | trufflehog | committed git history on every ref, not uncommitted changes. the target must be the repository root. trufflehog runs with `--no-verification` and `--no-update`, so it sends no candidate secrets to providers. the `URI` detector is excluded because it flags every URL with embedded credentials, including test fixtures. pug keeps the detector, file, line, and commit, and drops secret values and committer details. opt-in only. |
 | `dependencies` | trivy | vulnerabilities in supported dependency manifests and lockfiles. |
 | `actions` | actionlint | GitHub Actions syntax, expressions, and action metadata. shellcheck and pyflakes subprocesses are disabled. |
+| `workflows` | zizmor | GitHub Actions security: script injection, risky triggers, broad permissions, unpinned actions, and credentials left by checkout. zizmor uses its default regular persona. pug passes `--offline` and removes `GH_TOKEN`, `GITHUB_TOKEN`, and `ZIZMOR_GITHUB_TOKEN` from the environment, so the check does not call GitHub. a repository with no workflow or action files completes with nothing to audit. |
 | `infra` | trivy | supported infrastructure and container configuration checks. |
 | `image` | trivy | container image vulnerabilities and misconfigurations. |
 | `api` | schemathesis | API contract checks and input fuzzing from the supplied local schema. |
@@ -111,7 +113,7 @@ pug setup --check --format json
 | `zap` | Docker and ZAP | full scan using a preinstalled digest-pinned ZAP image. |
 | `ports` | naabu | TCP connect scan of `--ports` and `--expect` on one IP address. open ports outside `--expect` are medium findings. if no expected port answers, the check fails, because a down or filtered host looks the same as a closed one. |
 
-repository defaults are `source,secrets,dependencies,actions,infra`. add `secrets-history` with `--checks` after `pug setup --tools trufflehog`. application defaults are `api,exposure`. `pentest` appears in `not_tested` because pug supplies no autonomous pentesting agent.
+repository defaults are `source,secrets,dependencies,actions,workflows,infra`. add `secrets-history` with `--checks` after `pug setup --tools trufflehog`. application defaults are `api,exposure`. `pentest` appears in `not_tested` because pug supplies no autonomous pentesting agent.
 
 ### rule packs
 

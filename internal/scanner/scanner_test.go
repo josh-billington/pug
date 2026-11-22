@@ -466,3 +466,91 @@ func TestValidatePortScanTargets(t *testing.T) {
 		}
 	}
 }
+
+func envHasToken(env []string) bool {
+	for _, entry := range env {
+		key, _, _ := strings.Cut(entry, "=")
+		switch key {
+		case "GH_TOKEN", "GITHUB_TOKEN", "ZIZMOR_GITHUB_TOKEN":
+			return true
+		}
+	}
+	return false
+}
+
+func TestWorkflowAuditReportsRelativeFindingsOffline(t *testing.T) {
+	t.Setenv("GH_TOKEN", "gh-secret")
+	t.Setenv("GITHUB_TOKEN", "github-secret")
+	t.Setenv("ZIZMOR_GITHUB_TOKEN", "zizmor-secret")
+	target := t.TempDir()
+	workflow := filepath.Join(target, ".github", "workflows", "ci.yml")
+	sarif := `{"version":"2.1.0","runs":[{"results":[{"ruleId":"zizmor/template-injection","level":"error","message":{"text":"code injection via template expansion"},"locations":[{"physicalLocation":{"artifactLocation":{"uri":` + strconv.Quote(workflow) + `},"region":{"startLine":8}}}]}]}]}`
+	var scanArgs, scanEnv []string
+	executor := executorFunc(func(_ context.Context, i runner.Invocation) runner.Result {
+		if envHasToken(i.Env) {
+			t.Errorf("zizmor env keeps a GitHub token: %q", i.Env)
+		}
+		if slices.Equal(i.Args, []string{"--version"}) {
+			return runner.Result{Stdout: []byte("zizmor 1.32.0\n")}
+		}
+		scanArgs, scanEnv = append([]string(nil), i.Args...), append([]string(nil), i.Env...)
+		return runner.Result{Stdout: []byte(sarif)}
+	})
+	r := Scan(t.Context(), Options{Target: target, Kind: "repo", Checks: []string{"workflows"}, Timeout: time.Second}, executor)
+	check := r.Checks[0]
+	if !r.Complete || check.Status != "completed" || check.Tool != "zizmor" || len(check.Findings) != 1 {
+		t.Fatalf("workflow audit: %+v", check)
+	}
+	finding := check.Findings[0]
+	if finding.Rule != "zizmor/template-injection" || finding.Severity != "high" || finding.Location != ".github/workflows/ci.yml" || finding.Line != 8 {
+		t.Fatalf("finding: %+v", finding)
+	}
+	if !slices.Equal(scanArgs, []string{"--offline", "--format=sarif", target}) || slices.Contains(scanArgs, "--persona") || slices.Contains(scanArgs, "--pedantic") {
+		t.Fatalf("zizmor args = %q", scanArgs)
+	}
+	if len(scanEnv) == 0 || envHasToken(scanEnv) {
+		t.Fatalf("scan env = %q", scanEnv)
+	}
+	var out strings.Builder
+	if err := report.Write(&out, r, "sarif"); err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		Runs []struct {
+			AutomationDetails struct{ ID string } `json:"automationDetails"`
+		} `json:"runs"`
+	}
+	if err := json.Unmarshal([]byte(out.String()), &doc); err != nil {
+		t.Fatal(err)
+	}
+	if len(doc.Runs) != 1 || doc.Runs[0].AutomationDetails.ID != "pug/workflows/" {
+		t.Fatalf("sarif runs = %+v", doc.Runs)
+	}
+}
+
+func TestWorkflowsWithoutInputsCompletes(t *testing.T) {
+	executor := executorFunc(func(_ context.Context, i runner.Invocation) runner.Result {
+		if slices.Equal(i.Args, []string{"--version"}) {
+			return runner.Result{Stdout: []byte("zizmor 1.32.0\n")}
+		}
+		return runner.Result{ExitCode: 3, Err: errors.New("exit status 3")}
+	})
+	r := Scan(t.Context(), Options{Target: t.TempDir(), Kind: "repo", Checks: []string{"workflows"}, Timeout: time.Second}, executor)
+	check := r.Checks[0]
+	if !r.Complete || check.Status != "completed" || check.ExitCode != 0 || len(check.Findings) != 0 || !strings.Contains(check.Reason, "nothing to audit") {
+		t.Fatalf("empty repository: %+v", check)
+	}
+}
+
+func TestWorkflowErrorFailsTheCheck(t *testing.T) {
+	executor := executorFunc(func(_ context.Context, i runner.Invocation) runner.Result {
+		if slices.Equal(i.Args, []string{"--version"}) {
+			return runner.Result{Stdout: []byte("zizmor 1.32.0\n")}
+		}
+		return runner.Result{ExitCode: 1, Err: errors.New("exit status 1")}
+	})
+	r := Scan(t.Context(), Options{Target: t.TempDir(), Kind: "repo", Checks: []string{"workflows"}, Timeout: time.Second}, executor)
+	if r.Complete || r.Checks[0].Status != "failed" {
+		t.Fatalf("zizmor error did not fail the check: %+v", r.Checks[0])
+	}
+}

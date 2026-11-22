@@ -3,6 +3,7 @@
 package scanner
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -95,6 +97,65 @@ func TestRealRepositoryScanners(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestRealZizmorWorkflowAudit(t *testing.T) {
+	requireTool(t, "zizmor")
+	t.Run("injection", func(t *testing.T) {
+		repo := t.TempDir()
+		fixtureFile(t, repo, ".github/workflows/ci.yml", "name: ci\non: push\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n      - name: inject\n        run: echo \"${{ github.event.issue.title }}\"\n")
+		options := Options{Kind: "repo", Target: repo, Checks: []string{"workflows"}, Timeout: 3 * time.Minute, Version: "integration"}
+		if err := Validate(&options); err != nil {
+			t.Fatal(err)
+		}
+		r := Scan(t.Context(), options, runner.Local{})
+		if !r.Complete {
+			data, _ := json.MarshalIndent(r, "", "  ")
+			t.Fatalf("workflow audit did not complete:\n%s", data)
+		}
+		found := false
+		for _, finding := range r.Findings() {
+			if filepath.IsAbs(finding.Location) || strings.Contains(finding.Location, "://") {
+				t.Errorf("non-relative location %q", finding.Location)
+			}
+			if strings.Contains(finding.Rule, "template-injection") && finding.Location == ".github/workflows/ci.yml" {
+				found = true
+			}
+		}
+		if !found {
+			data, _ := json.MarshalIndent(r.Findings(), "", "  ")
+			t.Fatalf("zizmor did not report the template injection:\n%s", data)
+		}
+		if !slices.Contains(r.Checks[0].Command, "--offline") {
+			t.Fatalf("command = %q", r.Checks[0].Command)
+		}
+		var out bytes.Buffer
+		if err := report.Write(&out, r, "sarif"); err != nil {
+			t.Fatal(err)
+		}
+		var doc struct {
+			Runs []struct {
+				AutomationDetails struct{ ID string } `json:"automationDetails"`
+			} `json:"runs"`
+		}
+		if err := json.Unmarshal(out.Bytes(), &doc); err != nil || len(doc.Runs) != 1 || doc.Runs[0].AutomationDetails.ID != "pug/workflows/" {
+			t.Fatalf("sarif: %v\n%s", err, out.String())
+		}
+	})
+	t.Run("no workflows", func(t *testing.T) {
+		repo := t.TempDir()
+		fixtureFile(t, repo, "README.md", "hello\n")
+		options := Options{Kind: "repo", Target: repo, Checks: []string{"workflows"}, Timeout: time.Minute, Version: "integration"}
+		if err := Validate(&options); err != nil {
+			t.Fatal(err)
+		}
+		r := Scan(t.Context(), options, runner.Local{})
+		check := r.Checks[0]
+		if !r.Complete || check.Status != "completed" || len(check.Findings) != 0 || !strings.Contains(check.Reason, "nothing to audit") {
+			data, _ := json.MarshalIndent(r, "", "  ")
+			t.Fatalf("repository without workflows:\n%s", data)
+		}
+	})
 }
 
 func TestRealOpenGrepPartialParseCompletesWithoutStrict(t *testing.T) {

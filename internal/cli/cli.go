@@ -179,7 +179,7 @@ func scanCommand(name, kind, version string) *cobra.Command {
 	switch kind {
 	case "repo":
 		cmd.Use = "scan [DIR]"
-		flags.StringSliceVarP(&options.Checks, "checks", "c", scanner.RepositoryChecks, "Checks: source,secrets,dependencies,actions,infra; opt-in: secrets-history")
+		flags.StringSliceVarP(&options.Checks, "checks", "c", scanner.RepositoryChecks, "Checks: source,secrets,dependencies,actions,workflows,infra; opt-in: secrets-history")
 		flags.StringSliceVar(&ruleValues, "rules", []string{"starter"}, "Source rules, repeated or comma-separated: starter, NAME[:PROFILE], a local .yml file, or DIR[:PROFILE]")
 	case "image":
 		options.Checks = []string{"image"}
