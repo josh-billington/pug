@@ -32,6 +32,8 @@ func TestUsageErrors(t *testing.T) {
 		{name: "port scan hostname", args: []string{"net", "localhost", "--ports", "22", "--expect", "22", "--allow-active"}},
 		{name: "mutable image", args: []string{"image", "alpine:latest"}},
 		{name: "invalid format", args: []string{"scan", ".", "--format", "yaml"}},
+		{name: "sarif for an image", args: []string{"image", "alpine@sha256:" + strings.Repeat("a", 64), "--format", "sarif"}},
+		{name: "sarif for a sandbox", args: []string{"sandbox", "--format", "sarif", "--", "echo"}},
 		{name: "invalid timeout", args: []string{"scan", ".", "--timeout", "-1s"}},
 		{name: "invalid threshold", args: []string{"scan", ".", "--fail-on", "anything"}},
 		{name: "sandbox separator", args: []string{"sandbox", "echo"}},
@@ -78,6 +80,25 @@ func TestScanDefaultsToCurrentDirectoryWithShortFlags(t *testing.T) {
 	}
 	if saved, err := os.ReadFile(output); err != nil || !bytes.Equal(saved, stdout.Bytes()) {
 		t.Fatalf("output not saved: %v", err)
+	}
+}
+
+func TestScanWritesSARIFWithoutRunsForChecksThatDidNotComplete(t *testing.T) {
+	t.Setenv("PATH", "")
+	t.Setenv("PUG_HOME", t.TempDir())
+	root := t.TempDir()
+	output := filepath.Join(root, "pug.sarif")
+	var stdout, stderr bytes.Buffer
+	code := Execute(t.Context(), []string{"scan", root, "-c", "secrets", "-f", "sarif", "-o", output}, &stdout, &stderr, "test")
+	var log struct {
+		Version string            `json:"version"`
+		Runs    []json.RawMessage `json:"runs"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &log); err != nil || code != 3 || log.Version != "2.1.0" || log.Runs == nil || len(log.Runs) != 0 {
+		t.Fatalf("exit=%d, stdout=%s, stderr=%s", code, &stdout, &stderr)
+	}
+	if saved, err := os.ReadFile(output); err != nil || !bytes.Equal(saved, stdout.Bytes()) {
+		t.Fatalf("SARIF not saved: %v", err)
 	}
 }
 
