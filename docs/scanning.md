@@ -76,6 +76,28 @@ if a selected pack is not installed, the `source` check is skipped. its reason i
 
 the comparison lists `new`, `persistent`, `absent`, and `unverified` findings. if a check did not finish, missing findings remain `unverified`. see [report comparison](commands.md#report-comparison).
 
+## upload to GitHub code scanning
+
+`pug scan -f sarif` writes SARIF 2.1.0, which GitHub code scanning reads. findings appear in the repository's Security tab and on pull requests.
+
+```sh
+pug scan -f sarif -o pug.sarif > /dev/null
+```
+
+each completed check is its own run with its own category, such as `pug/secrets/`. a check that does not complete has no run. code scanning then leaves that check's open alerts alone, so a failed scan never closes an alert. file paths are relative to the scanned directory, so scan the repository root.
+
+in a GitHub Actions job, upload the file with `github/codeql-action/upload-sarif` and the `security-events: write` permission. run the upload step even when the scan exits `1` for findings:
+
+```yaml
+- run: pug scan -f sarif -o pug.sarif > /dev/null
+- if: always()
+  uses: github/codeql-action/upload-sarif@v3
+  with:
+    sarif_file: pug.sarif
+```
+
+`pug diff` reads JSON reports, not SARIF. to compare reports as well, save a JSON report in a second scan.
+
 ## scan a container image
 
 set `IMAGE` to a full image reference in `NAME@sha256:DIGEST` format. then run:

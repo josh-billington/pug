@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -22,6 +23,23 @@ import (
 type executorFunc func(context.Context, runner.Invocation) runner.Result
 
 func (f executorFunc) Run(ctx context.Context, i runner.Invocation) runner.Result { return f(ctx, i) }
+
+func fakeGitleaks(t *testing.T, version runner.Result, sarif string, result runner.Result) executorFunc {
+	t.Helper()
+	return func(_ context.Context, i runner.Invocation) runner.Result {
+		if len(i.Args) == 1 {
+			return version
+		}
+		for n, arg := range i.Args {
+			if arg == "--report-path" {
+				if err := os.WriteFile(i.Args[n+1], []byte(sarif), 0o600); err != nil {
+					t.Error(err)
+				}
+			}
+		}
+		return result
+	}
+}
 
 func TestScanCoverage(t *testing.T) {
 	t.Parallel()
@@ -48,22 +66,11 @@ func TestScanCoverage(t *testing.T) {
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			executor := executorFunc(func(_ context.Context, i runner.Invocation) runner.Result {
-				if len(i.Args) == 1 {
-					if tt.status == "unavailable" {
-						return tt.result
-					}
-					return runner.Result{Stdout: []byte("test-version")}
-				}
-				for n, arg := range i.Args {
-					if arg == "--report-path" {
-						if err := os.WriteFile(i.Args[n+1], []byte(tt.data), 0o600); err != nil {
-							t.Fatal(err)
-						}
-					}
-				}
-				return tt.result
-			})
+			version := runner.Result{Stdout: []byte("test-version")}
+			if tt.status == "unavailable" {
+				version = tt.result
+			}
+			executor := fakeGitleaks(t, version, tt.data, tt.result)
 			r := Scan(t.Context(), Options{Target: t.TempDir(), Kind: "repo", Checks: []string{"secrets"}, Timeout: time.Second}, executor)
 			if r.Checks[0].Status != tt.status || r.Complete != (tt.status == "completed") {
 				t.Fatalf("incorrect coverage: %+v", r)
@@ -120,19 +127,7 @@ func TestActionsWithoutWorkflowsIsNotIncomplete(t *testing.T) {
 func TestScanRecordsStderrVersionAndIdentifiesFindingsOnce(t *testing.T) {
 	t.Parallel()
 	sarif := `{"version":"2.1.0","runs":[{"results":[{"ruleId":"token","message":{"text":"leak"},"locations":[{"physicalLocation":{"artifactLocation":{"uri":"config"},"region":{"startLine":2}}}]}]}]}`
-	executor := executorFunc(func(_ context.Context, i runner.Invocation) runner.Result {
-		if len(i.Args) == 1 {
-			return runner.Result{Stderr: []byte("\x1b[1mgitleaks v8.0.0\x1b[0m\n")}
-		}
-		for n, arg := range i.Args {
-			if arg == "--report-path" {
-				if err := os.WriteFile(i.Args[n+1], []byte(sarif), 0o600); err != nil {
-					t.Fatal(err)
-				}
-			}
-		}
-		return runner.Result{ExitCode: 10}
-	})
+	executor := fakeGitleaks(t, runner.Result{Stderr: []byte("\x1b[1mgitleaks v8.0.0\x1b[0m\n")}, sarif, runner.Result{ExitCode: 10})
 	r := Scan(t.Context(), Options{Target: t.TempDir(), Kind: "repo", Checks: []string{"secrets"}, Timeout: time.Second}, executor)
 	check := r.Checks[0]
 	if check.Status != "completed" || check.Version != "gitleaks v8.0.0" || len(check.Findings) != 1 {
@@ -146,13 +141,29 @@ func TestScanRecordsStderrVersionAndIdentifiesFindingsOnce(t *testing.T) {
 	}
 }
 
-func TestJoinReason(t *testing.T) {
+func TestScanReportsFileLocationsRelativeToTheTarget(t *testing.T) {
 	t.Parallel()
-	if got := joinReason("", "cleanup failed"); got != "cleanup failed" {
-		t.Fatalf("empty reason = %q", got)
+	target := t.TempDir()
+	inside := filepath.Join(target, "site", "lib", "site.ts")
+	uris := []string{inside, "file://" + filepath.ToSlash(inside), "config/app.env", "/elsewhere/key.pem"}
+	var results []string
+	for _, uri := range uris {
+		results = append(results, `{"ruleId":"token","message":{"text":"leak"},"locations":[{"physicalLocation":{"artifactLocation":{"uri":`+
+			strconv.Quote(uri)+`},"region":{"startLine":3}}}]}`)
 	}
-	if got := joinReason("timed out", "cleanup failed"); got != "timed out; cleanup failed" {
-		t.Fatalf("joined reason = %q", got)
+	sarif := `{"version":"2.1.0","runs":[{"results":[` + strings.Join(results, ",") + `]}]}`
+	executor := fakeGitleaks(t, runner.Result{Stdout: []byte("gitleaks 8")}, sarif, runner.Result{ExitCode: 10})
+	r := Scan(t.Context(), Options{Target: target, Kind: "repo", Checks: []string{"secrets"}, Timeout: time.Second}, executor)
+	var got []string
+	for _, finding := range r.Checks[0].Findings {
+		got = append(got, finding.Location)
+	}
+	want := []string{"site/lib/site.ts", "site/lib/site.ts", "config/app.env", "/elsewhere/key.pem"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("locations = %q, want %q", got, want)
+	}
+	if r.Checks[0].Findings[0].Fingerprint != r.Checks[0].Findings[1].Fingerprint {
+		t.Fatal("absolute path and file URI to one file fingerprint differently")
 	}
 }
 

@@ -493,9 +493,11 @@ func runCheck(ctx context.Context, options Options, name string, executor runner
 	}
 	check.EvidenceSHA256 = report.Digest(data)
 	findings, err := p.parser(data)
-	// Parsers leave findings unidentified; fingerprints include the check name.
 	for _, finding := range findings {
 		finding.Check = name
+		if options.Kind == "repo" {
+			finding.Location = repoRelative(options.Target, finding.Location)
+		}
 		finding.Identify()
 		check.Findings = append(check.Findings, finding)
 	}
@@ -561,6 +563,21 @@ func purgeMount(ctx context.Context, executor runner.Executor, image, dir, conta
 		return fmt.Errorf("cleanup container exited %d", result.ExitCode)
 	}
 	return removeErr
+}
+
+func repoRelative(target, location string) string {
+	path := location
+	if u, err := url.Parse(location); err == nil && u.Scheme == "file" {
+		path = filepath.FromSlash(u.Path)
+	}
+	if !filepath.IsAbs(path) {
+		return location
+	}
+	rel, err := filepath.Rel(target, path)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return location
+	}
+	return filepath.ToSlash(rel)
 }
 
 // joinReason appends note to an existing reason without a dangling separator.

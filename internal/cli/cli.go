@@ -7,7 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"sort"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -93,6 +94,10 @@ func usageArgs(cmd *cobra.Command) {
 func scanCommand(name, kind, version string) *cobra.Command {
 	options := scanner.Options{Kind: kind, Version: version}
 	var format, output, failOn string
+	formats := []string{"json", "text"}
+	if kind == "repo" {
+		formats = append(formats, "sarif")
+	}
 	var ruleValues []string
 	var active bool
 	cmd := &cobra.Command{
@@ -118,8 +123,8 @@ func scanCommand(name, kind, version string) *cobra.Command {
 			if len(args) > 0 {
 				options.Target = args[0]
 			}
-			if format != "json" && format != "text" {
-				return usageError("format must be json or text")
+			if err := checkFormat(format, formats...); err != nil {
+				return err
 			}
 			if !validThreshold(failOn) {
 				return usageError("fail-on must be info, low, medium, high, critical, or none")
@@ -162,7 +167,7 @@ func scanCommand(name, kind, version string) *cobra.Command {
 		},
 	}
 	flags := cmd.Flags()
-	flags.StringVarP(&format, "format", "f", "json", "Report format: json or text")
+	flags.StringVarP(&format, "format", "f", "json", "Report format: "+strings.Join(formats, ", "))
 	flags.StringVarP(&output, "output", "o", "", "Also atomically save the report to this file (mode 0600)")
 	failOnDefault := "high"
 	if kind == "net" {
@@ -193,6 +198,13 @@ func scanCommand(name, kind, version string) *cobra.Command {
 	return cmd
 }
 
+func checkFormat(format string, formats ...string) error {
+	if !slices.Contains(formats, format) {
+		return usageError("format must be %s", strings.Join(formats, ", "))
+	}
+	return nil
+}
+
 func validThreshold(value string) bool {
 	switch value {
 	case "info", "low", "medium", "high", "critical", "none":
@@ -219,7 +231,7 @@ func doctorCommand() *cobra.Command {
 			for name := range toolNames {
 				names = append(names, name)
 			}
-			sort.Strings(names)
+			slices.Sort(names)
 			items := []dependency{}
 			for _, name := range names {
 				path, err := tools.LookPath(name)
@@ -263,8 +275,8 @@ func sandboxCommand(version string) *cobra.Command {
 			if cmd.ArgsLenAtDash() != 0 {
 				return usageError("sandbox command must follow --")
 			}
-			if format != "json" && format != "text" {
-				return usageError("format must be json or text")
+			if err := checkFormat(format, "json", "text"); err != nil {
+				return err
 			}
 			options.Command = args
 			if err := sandbox.Validate(&options); err != nil {

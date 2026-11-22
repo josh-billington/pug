@@ -155,7 +155,7 @@ the live application tests in [`internal/scanner/scanner_integration_test.go`](.
 
 | flag | applies to | default | behavior |
 | --- | --- | --- | --- |
-| `--format`, `-f` | `scan`, `image`, `app`, `net` | `json` | accepts `json` or `text`. |
+| `--format`, `-f` | `scan`, `image`, `app`, `net` | `json` | accepts `json` or `text`. `scan` also accepts `sarif`, for [code scanning](scanning.md#upload-to-github-code-scanning). |
 | `--output`, `-o` | `scan`, `image`, `app`, `net` | unset | also saves the report. the parent directory must exist. |
 | `--fail-on` | `scan`, `image`, `app`, `net` | `high`, or `medium` for `net` | minimum severity that produces exit code `1`. accepts `info`, `low`, `medium`, `high`, `critical`, or `none`. |
 | `--timeout` | `scan`, `image`, `app`, `net` | `5m` | sets a positive deadline for each scanner, including its version lookup. |

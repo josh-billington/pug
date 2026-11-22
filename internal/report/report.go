@@ -147,11 +147,20 @@ func (r Report) HasFindings(threshold string) bool {
 }
 
 func Write(w io.Writer, r Report, format string) error {
-	if format == "json" {
+	switch format {
+	case "json":
 		enc := json.NewEncoder(w)
 		enc.SetIndent("", "  ")
 		return enc.Encode(r)
+	case "sarif":
+		return writeSARIF(w, r)
+	case "text":
+		return writeText(w, r)
 	}
+	return fmt.Errorf("unknown report format %q", format)
+}
+
+func writeText(w io.Writer, r Report) error {
 	var text strings.Builder
 	fmt.Fprintf(&text, "PUG — %s\nRequested checks complete: %t\n\n", r.Target, r.Complete)
 	for _, check := range r.Checks {

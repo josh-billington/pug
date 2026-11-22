@@ -86,3 +86,11 @@ func TestTextOutputStripsTerminalControls(t *testing.T) {
 		t.Fatalf("unsafe text output: %q", text)
 	}
 }
+
+func TestWriteRejectsUnknownFormat(t *testing.T) {
+	t.Parallel()
+	var out strings.Builder
+	if err := Write(&out, Report{SchemaVersion: "1"}, "yaml"); err == nil || out.Len() != 0 {
+		t.Fatalf("unknown format wrote %q, err %v", out.String(), err)
+	}
+}
