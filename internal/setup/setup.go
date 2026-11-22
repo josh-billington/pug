@@ -19,9 +19,9 @@ import (
 	"github.com/josh-billington/pug/internal/tools"
 )
 
-var NativeTools = []string{"gitleaks", "actionlint", "opengrep", "trivy", "nuclei", "schemathesis"}
+var NativeTools = []string{"gitleaks", "actionlint", "zizmor", "opengrep", "trivy", "nuclei", "schemathesis"}
 
-var RepositoryTools = []string{"gitleaks", "actionlint", "opengrep", "trivy"}
+var RepositoryTools = []string{"gitleaks", "actionlint", "zizmor", "opengrep", "trivy"}
 
 // OptionalTools back opt-in checks and install only when named with --tools.
 var OptionalTools = []string{"trufflehog", "naabu"}

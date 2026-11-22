@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 )
 
 // ZAPImage is the image exercised by the live ZAP integration test.
@@ -25,13 +26,34 @@ func Home() (string, error) {
 	return filepath.Join(home, ".local", "share", "pug"), nil
 }
 
-// IsolatedEnv points HOME at dir for tools that write state there, or returns nil to inherit the
-// environment. naabu writes config under HOME (XDG_CONFIG_HOME on Linux) and reads cloud upload settings.
+// IsolatedEnv returns a tool's environment, or nil to inherit the process environment.
+// naabu writes config under HOME (XDG_CONFIG_HOME on Linux) and reads cloud upload settings.
+// zizmor gets a copy with GitHub tokens removed.
 func IsolatedEnv(tool, dir string) []string {
-	if tool != "naabu" {
-		return nil
+	switch tool {
+	case "naabu":
+		return append(os.Environ(), "HOME="+dir, "XDG_CONFIG_HOME="+dir, "DISABLE_CLOUD_UPLOAD=true", "PDCP_API_KEY=")
+	case "zizmor":
+		// These tokens make zizmor call GitHub. Pug passes --offline and still removes them.
+		return withoutEnv(os.Environ(), "GH_TOKEN", "GITHUB_TOKEN", "ZIZMOR_GITHUB_TOKEN")
 	}
-	return append(os.Environ(), "HOME="+dir, "XDG_CONFIG_HOME="+dir, "DISABLE_CLOUD_UPLOAD=true", "PDCP_API_KEY=")
+	return nil
+}
+
+func withoutEnv(env []string, keys ...string) []string {
+	drop := map[string]bool{}
+	for _, key := range keys {
+		drop[key] = true
+	}
+	kept := make([]string, 0, len(env))
+	for _, entry := range env {
+		key, _, _ := strings.Cut(entry, "=")
+		if drop[key] {
+			continue
+		}
+		kept = append(kept, entry)
+	}
+	return kept
 }
 
 // LookPath preserves PATH precedence and only falls back for bare tool names.

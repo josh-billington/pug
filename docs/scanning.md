@@ -22,7 +22,7 @@ to select checks, pass `-c`:
 pug scan -c source,secrets,actions -f text
 ```
 
-see [checks](commands.md#checks) for the tool and scope of each check. a missing or skipped requested check makes the report incomplete. one exception applies to `actions`. in a repository with no workflow YAML files, that check completes with nothing to lint and does not require actionlint.
+see [checks](commands.md#checks) for the tool and scope of each check. a missing or skipped requested check makes the report incomplete. in a repository with no workflow YAML files, `actions` completes with nothing to lint and does not require actionlint. `workflows` completes with nothing to audit when zizmor collects no workflow or action files. a missing zizmor binary still leaves that check unavailable.
 
 ## use a rule pack
 

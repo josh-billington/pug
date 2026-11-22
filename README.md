@@ -1,6 +1,6 @@
 # pug
 
-pug is a CLI tool for your agents, it makes 9 security scanning tools available to your agents and provides structured output as JSON
+pug is a CLI tool for your agents, it makes 10 security scanning tools available to your agents and provides structured output as JSON
 
 pug wraps by default: 
 
@@ -8,6 +8,7 @@ pug wraps by default:
 - gitleaks
 - trivy
 - actionlint
+- zizmor
 - schemathesis
 - nuclei
 
@@ -32,7 +33,7 @@ when `skills/pug` is on the default branch, install the shared skill with:
 
 npx skills add josh-billington/pug --skill pug --agent claude-code codex cursor
 
-run `pug setup --repo`. that checks gitleaks, actionlint, opengrep, and trivy. it installs any that are missing. do not use sudo.
+run `pug setup --repo`. that checks gitleaks, actionlint, zizmor, opengrep, and trivy. it installs any that are missing. do not use sudo.
 
 report whether setup printed `Selected scanners are ready.` do not start a scan.
 ```
